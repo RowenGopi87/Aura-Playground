@@ -55,7 +55,7 @@ export default function TraceabilityPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
-  const [summaryCardsVisible, setSummaryCardsVisible] = useState(true);
+  const [summaryCardsVisible, setSummaryCardsVisible] = useState(false);
 
   const buildTraceabilityTree = (): TraceabilityItem[] => {
     return useCases.map(useCase => {

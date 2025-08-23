@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/database';
+import { databaseService } from '@/lib/database/service';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,28 +10,19 @@ export async function GET(request: NextRequest) {
     const businessBriefId = searchParams.get('businessBriefId');
     const status = searchParams.get('status');
 
-    let query = 'SELECT * FROM initiatives';
-    const params: any[] = [];
-
-    // Add filters
-    const conditions = [];
+    // Use database service to get properly mapped initiatives
+    let initiatives;
     if (businessBriefId) {
-      conditions.push('business_brief_id = ?');
-      params.push(businessBriefId);
+      initiatives = await databaseService.getInitiativesByBusinessBrief(businessBriefId);
+      if (status) {
+        initiatives = initiatives.filter(init => init.status === status);
+      }
+    } else {
+      initiatives = await databaseService.getAllInitiatives();
+      if (status) {
+        initiatives = initiatives.filter(init => init.status === status);
+      }
     }
-    if (status) {
-      conditions.push('status = ?');
-      params.push(status);
-    }
-
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
-    }
-
-    query += ' ORDER BY created_at DESC';
-
-    await db.initialize();
-    const initiatives = await db.execute(query, params);
 
     console.log('✅ Retrieved initiatives from database:', initiatives.length);
 

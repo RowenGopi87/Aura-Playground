@@ -124,7 +124,7 @@ export default function TestCasesPage() {
   const [searchType, setSearchType] = useState<'all' | 'work_items' | 'test_cases'>('all');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [summaryCardsVisible, setSummaryCardsVisible] = useState(true);
+  const [summaryCardsVisible, setSummaryCardsVisible] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isGenerateDialogOpen, setIsGenerateDialogOpen] = useState(false);

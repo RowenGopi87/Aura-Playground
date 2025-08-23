@@ -10,6 +10,9 @@ import { useEpicStore } from '@/store/epic-store';
 import { useStoryStore } from '@/store/story-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { WorkItemsTable } from '@/components/ui/work-items-table';
+import { WorkItemEditModal } from '@/components/ui/work-item-edit-modal';
+import { PortfolioMappingModal } from '@/components/ui/portfolio-mapping-modal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -43,7 +46,8 @@ import {
   Clock,
   TestTube,
   ExternalLink,
-  Settings
+  Settings,
+  Building2
 } from 'lucide-react';
 import { MockLLMService } from '@/lib/mock-data';
 import { mockInitiatives, mockFeatures, mockEpics, mockStories } from '@/lib/mock-data'; // Import mock data
@@ -63,7 +67,7 @@ export default function RequirementsPage() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set()); // Empty = all collapsed
   const [collapsedLevels, setCollapsedLevels] = useState<Set<string>>(new Set()); // For collapsible hierarchy
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
-  const [summaryCardsVisible, setSummaryCardsVisible] = useState(true);
+  const [summaryCardsVisible, setSummaryCardsVisible] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -79,6 +83,10 @@ export default function RequirementsPage() {
   const [showDebugControls, setShowDebugControls] = useState(false);
   const [isLoadingFromDatabase, setIsLoadingFromDatabase] = useState(false);
     const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [portfolios, setPortfolios] = useState<any[]>([]);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingWorkItem, setEditingWorkItem] = useState<{item: any, type: string} | null>(null);
+  const [portfolioMappingOpen, setPortfolioMappingOpen] = useState(false);
   
   // All work items start collapsed by default - users can expand manually
   
@@ -143,20 +151,21 @@ export default function RequirementsPage() {
         initiativeData.data.forEach((init: any) => {
           currentInitiativeStore.addInitiative({
             id: init.id,
-            businessBriefId: init.business_brief_id,
+            businessBriefId: init.businessBriefId,
+            portfolioId: init.portfolioId, // Now properly mapped from database service
             title: init.title,
             description: init.description,
             category: 'business',
             priority: init.priority,
             rationale: init.description,
-            acceptanceCriteria: JSON.parse(init.acceptance_criteria || '[]'),
-            businessValue: init.business_value,
+            acceptanceCriteria: Array.isArray(init.acceptanceCriteria) ? init.acceptanceCriteria : JSON.parse(init.acceptanceCriteria || '[]'),
+            businessValue: init.businessValue,
             workflowLevel: 'initiative',
             status: init.status,
-            createdAt: new Date(init.created_at),
-            updatedAt: new Date(init.updated_at),
-            createdBy: init.assigned_to || 'System',
-            assignedTo: init.assigned_to || 'Team'
+            createdAt: new Date(init.createdAt),
+            updatedAt: new Date(init.updatedAt),
+            createdBy: init.assignedTo || 'System',
+            assignedTo: init.assignedTo || 'Team'
           });
         });
         console.log(`✅ Loaded ${initiativeData.data.length} initiatives from database`);
@@ -239,7 +248,14 @@ export default function RequirementsPage() {
             category: 'functional',
             priority: story.priority,
             rationale: story.description,
-            acceptanceCriteria: JSON.parse(story.acceptance_criteria || '[]'),
+            acceptanceCriteria: (() => {
+              try {
+                return JSON.parse(story.acceptance_criteria || '[]');
+              } catch {
+                // Handle invalid JSON by returning story.acceptance_criteria as single item array
+                return story.acceptance_criteria ? [story.acceptance_criteria] : [];
+              }
+            })(),
             businessValue: story.business_value || '',
             workflowLevel: 'story',
             storyPoints: story.story_points || 3,
@@ -258,6 +274,22 @@ export default function RequirementsPage() {
       console.error('❌ Failed to load work items from database:', error);
     } finally {
       setIsLoadingFromDatabase(false);
+    }
+  };
+
+  // Load portfolios from database
+  const loadPortfolios = async () => {
+    try {
+      console.log('📊 Loading portfolios...');
+      const response = await fetch('/api/portfolios');
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        setPortfolios(data.data);
+        console.log(`✅ Loaded ${data.data.length} portfolios`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to load portfolios:', error);
     }
   };
   
@@ -1092,26 +1124,144 @@ export default function RequirementsPage() {
     setEditingItem(null);
   };
 
-  const handleEdit = (item: any) => {
-    setEditingItem(item);
-    setFormData({
-      title: item.title,
-      description: item.description,
-      category: item.category || '',
-      priority: item.priority,
-      status: item.status,
-      businessBriefId: item.businessBriefId,
-      acceptanceCriteria: item.acceptanceCriteria.join('\n'),
-      businessValue: item.businessValue || '',
-      rationale: item.rationale || '',
-      assignee: item.assignee || ''
-    });
-    setIsDialogOpen(true);
+  const handleEdit = (item: any, type: string = 'initiative') => {
+    setEditingWorkItem({ item, type });
+    setEditModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this item?')) {
+  const handleSaveWorkItem = async (item: any, type: string) => {
+    try {
+      if (type === 'initiative') {
+        // Save initiative changes
+        updateInitiative(item.id, item);
+        
+        // Show success notification
+        const notification = document.createElement('div');
+        notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+        notification.textContent = `✅ ${type} updated successfully`;
+        document.body.appendChild(notification);
+        setTimeout(() => document.body.removeChild(notification), 3000);
+      }
+      // TODO: Add handling for other types (features, epics, stories)
+      
+    } catch (error) {
+      console.error('❌ Error saving work item:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+      
+      // Show error notification
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+      notification.textContent = `❌ Save Failed: ${errorMessage}`;
+      document.body.appendChild(notification);
+      setTimeout(() => document.body.removeChild(notification), 5000);
+    }
+    
+    setEditModalOpen(false);
+    setEditingWorkItem(null);
+  };
+
+  const handleSavePortfolioMappings = async (mappings: Record<string, string>) => {
+    try {
+      console.log('Saving portfolio mappings:', mappings);
+      
+      // Prepare assignment data for the API
+      const assignments = Object.entries(mappings)
+        .filter(([_, portfolioId]) => portfolioId) // Only include assigned items
+        .map(([initiativeId, portfolioId]) => ({
+          initiativeId,
+          portfolioId
+        }));
+
+      if (assignments.length === 0) {
+        console.log('No assignments to save');
+        return;
+      }
+
+      // Call the assignment API
+      const response = await fetch('/api/initiatives/assign-portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignments })
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to save portfolio assignments');
+      }
+
+      console.log(`✅ Successfully saved ${assignments.length} portfolio assignments`);
+
+      // Update the initiatives in the store with new portfolio assignments
+      assignments.forEach(({ initiativeId, portfolioId }) => {
+        const initiative = initiatives.find(init => init.id === initiativeId);
+        if (initiative) {
+          updateInitiative(initiativeId, { ...initiative, portfolioId });
+        }
+      });
+
+      // Show success notification
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+      notification.textContent = `✅ Successfully assigned ${assignments.length} initiatives to portfolios`;
+      document.body.appendChild(notification);
+      setTimeout(() => document.body.removeChild(notification), 3000);
+      
+    } catch (error) {
+      console.error('❌ Error saving portfolio mappings:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+      
+      // Show error notification
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+      notification.textContent = `❌ Save Failed: ${errorMessage}`;
+      document.body.appendChild(notification);
+      setTimeout(() => document.body.removeChild(notification), 5000);
+      
+      throw error; // Re-throw to let the modal handle the error state
+    }
+  };
+
+  const handleDelete = async (id: string, type: string = 'initiative') => {
+    const itemName = type.charAt(0).toUpperCase() + type.slice(1);
+    if (confirm(`Are you sure you want to delete this ${itemName.toLowerCase()}? This action cannot be undone and will also delete all child items (features, epics, stories).`)) {
+      try {
+        // Only handle initiative deletion for now - can be extended for other types
+        if (type === 'initiative') {
+          // Delete from database first
+          const response = await fetch(`/api/initiatives/delete?id=${id}`, {
+            method: 'DELETE',
+          });
+
+          const result = await response.json();
+          
+          if (!result.success) {
+            throw new Error(result.message || 'Failed to delete initiative');
+          }
+
+          // If database deletion successful, remove from store
       deleteInitiative(id);
+
+          // Show success notification
+          const notification = document.createElement('div');
+          notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+          notification.textContent = `✅ ${itemName} "${result.data.title}" deleted successfully`;
+          document.body.appendChild(notification);
+          setTimeout(() => document.body.removeChild(notification), 3000);
+
+          console.log('✅ Initiative deleted successfully from both database and store');
+        }
+      } catch (error) {
+        console.error('❌ Error deleting item:', error);
+        const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+        
+        // Show error notification
+        const notification = document.createElement('div');
+        notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+        notification.textContent = `❌ Delete Failed: ${errorMessage}`;
+        document.body.appendChild(notification);
+        setTimeout(() => document.body.removeChild(notification), 5000);
+      }
     }
   };
 
@@ -1406,7 +1556,7 @@ export default function RequirementsPage() {
               className="p-0.5 h-5 w-5 text-red-600 hover:text-red-700"
               onClick={(e) => {
                 e.stopPropagation();
-                handleDelete(item.id);
+                handleDelete(item.id, type);
               }}
               title="Delete"
             >
@@ -1521,6 +1671,7 @@ export default function RequirementsPage() {
       console.log('🚀 ONE-TIME load from database...');
       setHasLoadedOnce(true);
       loadWorkItemsFromDatabase();
+      loadPortfolios();
     }
   }, []); // Empty dependencies - runs exactly once
 
@@ -1787,6 +1938,15 @@ export default function RequirementsPage() {
             </DialogContent>
           </Dialog>
           
+          <Button 
+            variant="outline" 
+            className="flex items-center space-x-2"
+            onClick={() => setPortfolioMappingOpen(true)}
+          >
+            <Building2 size={16} />
+            <span>Portfolio Mapping</span>
+          </Button>
+          
           <Button className="flex items-center space-x-2" disabled={Object.values(generatingItems).some(loading => loading)}>
             <Sparkles size={16} />
             <span>AI Generate</span>
@@ -1918,74 +2078,29 @@ export default function RequirementsPage() {
         )}
       </Card>
 
-      {/* Hierarchical Work Items - Fixed Height with Scrolling */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center space-x-2 text-base">
-                <Target size={16} />
-                <span>Work Item Hierarchy</span>
-              </CardTitle>
-              <CardDescription className="text-sm">Initiative → Feature → Epic → Story breakdown</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-2">
-          <div className="space-y-3">
-            {businessBriefGroups.length > 0 ? (
-              businessBriefGroups.map((group) => (
-                <div key={group.businessBriefId} className="space-y-2">
-                  {/* Business Brief Header */}
-                  <div 
-                    className="flex items-center justify-between p-2 rounded-md border cursor-pointer hover:shadow-sm transition-all"
-                    style={{backgroundColor: '#FFD0C2'}}
-                    onClick={() => {
-                      setCollapsedLevels(prev => {
-                        const newSet = new Set(prev);
-                        const briefKey = `brief-${group.businessBriefId}`;
-                        if (newSet.has(briefKey)) {
-                          newSet.delete(briefKey);
-                        } else {
-                          newSet.add(briefKey);
-                        }
-                        return newSet;
-                      });
-                    }}
-                  >
-                    <div className="flex items-center space-x-2 flex-1 min-w-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="p-0.5 h-4 w-4 flex-shrink-0"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {collapsedLevels.has(`brief-${group.businessBriefId}`) ? (
-                          <ChevronRight size={8} className="text-gray-500" />
-                        ) : (
-                          <ChevronDown size={8} className="text-gray-500" />
-                        )}
-                      </Button>
-                      <Target className="h-3 w-3 flex-shrink-0" style={{color: '#B8957A'}} />
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-gray-900 text-xs break-words leading-tight">{group.businessBriefTitle}</h3>
-                        <p className="text-xs text-gray-500">{group.initiatives.length} init</p>
-                      </div>
-                    </div>
-                    <Badge variant="outline" className="text-xs h-4 px-1 flex-shrink-0" style={{ fontSize: '0.6rem' }}>
-                      {group.businessBriefId}
-                    </Badge>
-                  </div>
-                  
-                  {/* Initiatives */}
-                  {!collapsedLevels.has(`brief-${group.businessBriefId}`) && (
-                    <div className="ml-2 space-y-1">
-                      {group.initiatives.map((initiative) => renderWorkItem(initiative, 0, 'initiative'))}
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : (
+      {/* Enterprise-grade Work Items Table */}
+      <WorkItemsTable
+        initiatives={initiatives}
+        features={features}
+        epics={epics}
+        stories={stories}
+        portfolios={portfolios}
+        businessBriefs={useCases.map(uc => ({
+          id: uc.id,
+          title: uc.title,
+          businessBriefId: uc.businessBriefId || uc.id
+        }))}
+        onGenerateFeatures={handleGenerateFeatures}
+        onGenerateEpics={handleGenerateEpics}
+        onGenerateStories={handleGenerateStories}
+        onCreateInJira={handleCreateInJira}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        generatingItems={generatingItems}
+        creatingInJira={creatingInJira}
+      />
+
+      {businessBriefGroups.length === 0 && (
               <div className="text-center py-12">
                 <Target size={48} className="mx-auto text-gray-400 mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Work Items</h3>
@@ -1996,9 +2111,33 @@ export default function RequirementsPage() {
                 </Button>
               </div>
             )}
-          </div>
-        </CardContent>
-      </Card>
+
+      {/* Work Item Edit Modal */}
+      <WorkItemEditModal
+        isOpen={editModalOpen}
+        onClose={() => {
+          setEditModalOpen(false);
+          setEditingWorkItem(null);
+        }}
+        item={editingWorkItem?.item || null}
+        type={editingWorkItem?.type || 'initiative'}
+        portfolios={portfolios}
+        businessBriefs={useCases.map(uc => ({
+          id: uc.id,
+          title: uc.title,
+          businessBriefId: uc.businessBriefId || uc.id
+        }))}
+        onSave={handleSaveWorkItem}
+      />
+
+      {/* Portfolio Mapping Modal */}
+      <PortfolioMappingModal
+        isOpen={portfolioMappingOpen}
+        onClose={() => setPortfolioMappingOpen(false)}
+        initiatives={initiatives}
+        portfolios={portfolios}
+        onSave={handleSavePortfolioMappings}
+      />
     </div>
   );
 } 

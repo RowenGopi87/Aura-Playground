@@ -34,6 +34,16 @@ export interface BusinessBrief {
   updatedAt?: Date;
 }
 
+export interface Portfolio {
+  id: string;
+  name: string;
+  description: string;
+  function: string;
+  color?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface Initiative {
   id: string;
   businessBriefId: string;
@@ -44,6 +54,7 @@ export interface Initiative {
   priority: 'low' | 'medium' | 'high' | 'critical';
   status: 'backlog' | 'planning' | 'in_progress' | 'done' | 'cancelled';
   assignedTo?: string;
+  portfolioId?: string;
   estimatedValue?: number;
   workflowStage: 'planning' | 'development' | 'testing' | 'done';
   completionPercentage?: number;
@@ -160,6 +171,7 @@ export class DatabaseSchema {
       await db.createDatabase('aura_playground');
       
       // Create tables in dependency order
+      await this.createPortfoliosTable();
       await this.createBusinessBriefsTable();
       await this.createInitiativesTable();
       await this.createFeaturesTable();
@@ -168,6 +180,9 @@ export class DatabaseSchema {
       await this.createTestCasesTable();
       await this.createDocumentsTable();
       await this.createSafeMappingsTable();
+      
+      // Seed portfolios with company-specific data
+      await this.seedPortfolios();
       
       console.log('✅ Aura database schema initialized successfully');
       
@@ -222,6 +237,25 @@ export class DatabaseSchema {
     console.log('✅ Created business_briefs table');
   }
 
+  private static async createPortfoliosTable(): Promise<void> {
+    const query = `
+      CREATE TABLE IF NOT EXISTS portfolios (
+        id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        function TEXT,
+        color VARCHAR(10),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        
+        INDEX idx_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `;
+    
+    await db.execute(query);
+    console.log('✅ Created portfolios table');
+  }
+
   private static async createInitiativesTable(): Promise<void> {
     const query = `
       CREATE TABLE IF NOT EXISTS initiatives (
@@ -234,6 +268,7 @@ export class DatabaseSchema {
         priority ENUM('low', 'medium', 'high', 'critical') DEFAULT 'medium',
         status ENUM('backlog', 'planning', 'in_progress', 'done', 'cancelled') DEFAULT 'backlog',
         assigned_to VARCHAR(255),
+        portfolio_id VARCHAR(36),
         estimated_value DECIMAL(15,2),
         workflow_stage ENUM('planning', 'development', 'testing', 'done') DEFAULT 'planning',
         completion_percentage DECIMAL(5,2) DEFAULT 0.00,
@@ -241,7 +276,9 @@ export class DatabaseSchema {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         
         FOREIGN KEY (business_brief_id) REFERENCES business_briefs(id) ON DELETE CASCADE,
+        FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE SET NULL,
         INDEX idx_business_brief_id (business_brief_id),
+        INDEX idx_portfolio_id (portfolio_id),
         INDEX idx_status (status),
         INDEX idx_priority (priority),
         INDEX idx_workflow_stage (workflow_stage)
@@ -425,6 +462,72 @@ export class DatabaseSchema {
     
     await db.execute(query);
     console.log('✅ Created safe_mappings table');
+  }
+
+  private static async seedPortfolios(): Promise<void> {
+    console.log('🌱 Seeding portfolio data...');
+    
+    const portfolios = [
+      {
+        id: 'PORTFOLIO-WEB-MOBILE',
+        name: 'Web & Mobile',
+        description: 'Customer-facing web and mobile applications development',
+        function: 'Develops and maintains customer-facing digital touchpoints including websites, mobile apps, and progressive web applications',
+        color: '#3B82F6'
+      },
+      {
+        id: 'PORTFOLIO-CUSTOMER',
+        name: 'Customer Portfolio',
+        description: 'Customer experience and engagement solutions',
+        function: 'Manages customer-specific projects and specialized customer websites like rugby sevens, events, and customer portal solutions',
+        color: '#10B981'
+      },
+      {
+        id: 'PORTFOLIO-COMMERCIAL',
+        name: 'Commercial Portfolio',
+        description: 'Agent systems and commercial booking platforms',
+        function: 'Handles commercial booking systems, agent platforms like ResConnect, and B2B customer solutions for travel agents and corporate clients',
+        color: '#F59E0B'
+      },
+      {
+        id: 'PORTFOLIO-GROUP-SERVICE',
+        name: 'Group Service Portfolio',
+        description: 'Internal systems and payment infrastructure',
+        function: 'Manages internal operations including payroll systems, HR processes, hiring platforms, and payment gateway infrastructure for web and mobile frontends',
+        color: '#8B5CF6'
+      },
+      {
+        id: 'PORTFOLIO-DONATA',
+        name: 'Donata Portfolio',
+        description: 'Ground operations and baggage handling systems',
+        function: 'Handles below-the-wing airline operations including ground operations, baggage handling, cargo management, and airport operational systems',
+        color: '#EF4444'
+      }
+    ];
+
+    for (const portfolio of portfolios) {
+      const checkQuery = `SELECT id FROM portfolios WHERE id = ?`;
+      const [existing] = await db.execute(checkQuery, [portfolio.id]) as any[];
+      
+      if (existing.length === 0) {
+        const insertQuery = `
+          INSERT INTO portfolios (id, name, description, function, color)
+          VALUES (?, ?, ?, ?, ?)
+        `;
+        
+        await db.execute(insertQuery, [
+          portfolio.id,
+          portfolio.name,
+          portfolio.description,
+          portfolio.function,
+          portfolio.color
+        ]);
+        
+        console.log(`✅ Created portfolio: ${portfolio.name}`);
+      }
+    }
+    
+    console.log('✅ Portfolio data seeded successfully');
   }
 }
 

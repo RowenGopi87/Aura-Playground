@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
+import { PortfolioAssignmentModal } from '@/components/ui/portfolio-assignment-modal';
+import { IdeasTable } from '@/components/ui/ideas-table';
 import { 
   Plus, 
   FileText, 
@@ -296,7 +298,7 @@ export default function Version1IdeasPage() {
   const [editingUseCase, setEditingUseCase] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [summaryCardsVisible, setSummaryCardsVisible] = useState(true);
+  const [summaryCardsVisible, setSummaryCardsVisible] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingUseCase, setDeletingUseCase] = useState<any>(null);
@@ -312,6 +314,11 @@ export default function Version1IdeasPage() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [isUploadProgressModalOpen, setIsUploadProgressModalOpen] = useState(false);
   const [uploadProgressMessage, setUploadProgressMessage] = useState('');
+  
+  // Portfolio assignment states
+  const [isPortfolioAssignmentOpen, setIsPortfolioAssignmentOpen] = useState(false);
+  const [generatedInitiativesForAssignment, setGeneratedInitiativesForAssignment] = useState<any[]>([]);
+  const [pendingInitiatives, setPendingInitiatives] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -954,6 +961,28 @@ export default function Version1IdeasPage() {
     updateUseCase(id, { status: newStatus });
   };
 
+  const handlePortfolioAssignmentComplete = async (assignments: { initiativeId: string; portfolioId: string }[]) => {
+    const assignedCount = assignments.length;
+    const totalCount = generatedInitiativesForAssignment.length;
+    
+    // Show success notification
+    notify.success(
+      'Portfolio Assignment Complete!', 
+      `✅ Assigned ${assignedCount} of ${totalCount} initiatives to portfolios. They are now saved to database.`
+    );
+
+    // Add persistent notification to bell
+    addNotification({
+      title: 'Initiatives Assigned to Portfolios!',
+      message: `Assigned ${assignedCount} initiative${assignedCount !== 1 ? 's' : ''} to portfolios. They will persist across sessions. Check Work Items to view them.`,
+      type: 'success',
+      autoClose: false
+    });
+
+    // Clear the assignment state
+    setGeneratedInitiativesForAssignment([]);
+  };
+
   const handleGenerateInitiatives = async (useCaseId: string) => {
     const useCase = useCases.find(uc => uc.id === useCaseId);
     if (!useCase) {
@@ -1018,24 +1047,35 @@ export default function Version1IdeasPage() {
       const { initiatives } = result.data;
       const savedInitiatives = addGeneratedInitiatives(useCaseId, initiatives);
       
-      // Success notification without redirect
+      // Success notification 
       const generatedCount = result.metadata?.generated || initiatives.length;
       const savedCount = result.metadata?.saved || initiatives.length;
       
-      notify.success(
-        'Initiatives Generated & Saved!', 
-        `✅ Generated ${generatedCount} and saved ${savedCount} initiative${savedCount !== 1 ? 's' : ''} from "${useCase.title}" to database. View them in Work Items.`
+      notify.info(
+        'Initiatives Generated!', 
+        `✅ Generated ${generatedCount} initiative${savedCount !== 1 ? 's' : ''} from "${useCase.title}". Now assign them to portfolios.`
       );
 
-      // Add persistent notification to bell
-      addNotification({
-        title: 'Initiatives Saved to Database!',
-        message: `Generated and saved ${savedCount} initiative${savedCount !== 1 ? 's' : ''} from "${useCase.title}". They will persist across sessions. Check Work Items to view them.`,
-        type: 'success',
-        autoClose: false
-      });
-
       console.log(`✅ Generated ${initiatives.length} initiatives for ${useCase.title}`);
+      
+      const formattedInitiatives = initiatives.map((initiative: any) => ({
+        id: initiative.id || `INIT-${Date.now().toString(36)}`,
+        title: initiative.title,
+        description: initiative.description,
+        businessValue: initiative.businessValue || initiative.rationale,
+        businessBriefId: useCase.id,
+        businessBriefTitle: useCase.title
+      }));
+
+      // If modal is already open, add to existing initiatives
+      if (isPortfolioAssignmentOpen) {
+        setGeneratedInitiativesForAssignment(prev => [...prev, ...formattedInitiatives]);
+        notify.info('New Initiatives Added!', `Added ${formattedInitiatives.length} new initiatives to assignment session.`);
+      } else {
+        // Open new modal session
+        setGeneratedInitiativesForAssignment(formattedInitiatives);
+        setIsPortfolioAssignmentOpen(true);
+      }
 
     } catch (error) {
       console.error('Error generating initiatives:', error);
@@ -1668,192 +1708,16 @@ export default function Version1IdeasPage() {
         )}
       </Card>
 
-      {/* Business Brief Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredUseCases.map((useCase) => (
-          <Card 
-            key={useCase.id} 
-            className="hover:shadow-lg transition-all duration-200 border border-gray-400 bg-white shadow-md hover:border-blue-500 cursor-pointer overflow-hidden"
-            onClick={() => handleViewDetails(useCase)}
-          >
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center space-x-2">
-                  {getStatusIcon(useCase.status)}
-                  {/* Generation indicator badge */}
-                  {generatingInitiatives[useCase.id] && (
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 animate-pulse">
-                      <RefreshCw size={10} className="animate-spin mr-1" />
-                      Generating
-                    </Badge>
-                  )}
-                  <div>
-                    <Badge variant="outline" className="text-xs mb-1 font-mono">
-                      {useCase.businessBriefId}
-                    </Badge>
-                    <CardTitle className="text-lg text-gray-900">{useCase.title}</CardTitle>
-                  </div>
-                </div>
-                <div className="flex flex-col space-y-1">
-                  <Badge className={getStatusColor(useCase.status)} variant="outline">
-                    {useCase.status.replace('_', ' ').toUpperCase()}
-                  </Badge>
-                  <Badge variant="secondary" className={`text-xs ${getPriorityColor(useCase.priority)}`}>
-                    {useCase.priority.toUpperCase()}
-                  </Badge>
-                  {useCase.workflowStage && (
-                    <Badge variant="secondary" className={`text-xs ${getWorkflowStageColor(useCase.workflowStage)}`}>
-                      {useCase.workflowStage.toUpperCase()}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              {useCase.completionPercentage && (
-                <div className="mt-2">
-                  <div className="flex justify-between text-sm text-gray-600 mb-1">
-                    <span>Progress</span>
-                    <span>{useCase.completionPercentage}%</span>
-                  </div>
-                  <Progress value={useCase.completionPercentage} className="h-2" />
-                </div>
-              )}
-            </CardHeader>
-            <CardContent className="p-4 space-y-3">
-              <p className="text-sm text-gray-600 line-clamp-2">{useCase.businessObjective || useCase.description}</p>
-              
-              <div className="space-y-2">
-                <div className="flex items-center text-sm text-gray-500">
-                  <User size={14} className="mr-2" />
-                  {useCase.businessOwner || useCase.submittedBy}
-                </div>
-                {useCase.leadBusinessUnit && (
-                  <div className="flex items-center text-sm text-gray-500">
-                    <Building2 size={14} className="mr-2" />
-                    {useCase.leadBusinessUnit}
-                  </div>
-                )}
-                {useCase.primaryStrategicTheme && (
-                  <div className="flex items-center text-sm text-gray-500">
-                    <Target size={14} className="mr-2" />
-                    {useCase.primaryStrategicTheme}
-                  </div>
-                )}
-                <div className="flex items-center text-sm text-gray-500">
-                  <Calendar size={14} className="mr-2" />
-                  {formatDateForDisplay(useCase.submittedAt)}
-                </div>
-              </div>
-              
-              <div className="pt-3 mt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
-                {/* Status Selector Row */}
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs font-medium text-gray-700">Status:</span>
-                    <Select
-                      value={useCase.status}
-                      onValueChange={(value) => handleStatusChange(useCase.id, value)}
-                    >
-                      <SelectTrigger className="h-6 w-32 text-xs border-gray-300">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="draft">Draft</SelectItem>
-                        <SelectItem value="submitted">Submitted</SelectItem>
-                        <SelectItem value="in_review">In Review</SelectItem>
-                        <SelectItem value="approved">Approved</SelectItem>
-                        <SelectItem value="rejected">Rejected</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                
-                {/* Action Buttons Section */}
-                <div className="space-y-2">
-                  {/* Generate Button - Full Width When Available */}
-                  {useCase.status === 'approved' && (
-                    <Button 
-                      variant="default" 
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleGenerateInitiatives(useCase.id);
-                      }}
-                      disabled={generatingInitiatives[useCase.id]}
-                      className="w-full h-7 px-3 text-xs bg-blue-600 hover:bg-blue-700 border-0 flex items-center justify-center space-x-1"
-                      title="Generate initiatives in background - multiple generations can run simultaneously"
-                    >
-                      {generatingInitiatives[useCase.id] ? (
-                        <>
-                          <RefreshCw size={12} className="animate-spin" />
-                          <span className="ml-1">Generating Initiatives...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Lightbulb size={12} />
-                          <span className="ml-1">Generate Initiatives</span>
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  
-                  {/* Action Icons Row */}
-                  <div className="flex items-center justify-center gap-1">
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleViewDetails(useCase);
-                      }}
-                      className="h-6 w-6 p-0 hover:bg-gray-100"
-                      title="View Details"
-                    >
-                      <Eye size={12} />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditUseCase(useCase);
-                      }}
-                      className="h-6 w-6 p-0 hover:bg-gray-100"
-                      title="Edit Business Brief"
-                    >
-                      <Edit3 size={12} />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteUseCase(useCase);
-                      }}
-                      className="h-6 w-6 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50"
-                      title="Delete Brief"
-                    >
-                      <Trash2 size={10} />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      
-      {filteredUseCases.length === 0 && (
-        <div className="text-center py-12">
-          <FileText size={48} className="mx-auto text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No business briefs found</h3>
-          <p className="text-gray-600">
-            {searchTerm || filterStatus !== 'all' 
-              ? 'Try adjusting your search or filters'
-              : 'Get started by creating your first business brief'
-            }
-          </p>
-        </div>
-      )}
+      {/* Business Brief Ideas Table */}
+      <IdeasTable
+        businessBriefs={filteredUseCases}
+        generatingInitiatives={generatingInitiatives}
+        onView={handleViewDetails}
+        onEdit={handleEditUseCase}
+        onDelete={handleDeleteUseCase}
+        onStatusChange={handleStatusChange}
+        onGenerateInitiatives={handleGenerateInitiatives}
+      />
 
       {/* View Details Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
@@ -2443,6 +2307,14 @@ export default function Version1IdeasPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Portfolio Assignment Modal */}
+      <PortfolioAssignmentModal
+        isOpen={isPortfolioAssignmentOpen}
+        onClose={() => setIsPortfolioAssignmentOpen(false)}
+        initiatives={generatedInitiativesForAssignment}
+        onAssignmentComplete={handlePortfolioAssignmentComplete}
+      />
     </div>
   );
 }

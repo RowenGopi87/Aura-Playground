@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -115,10 +115,10 @@ type CodeType = 'frontend' | 'backend' | 'fullstack';
 
 export default function CodePage() {
   // Store hooks
-  const { addInitiative } = useInitiativeStore();
-  const { addFeature } = useFeatureStore();
-  const { addEpic } = useEpicStore();
-  const { addStory } = useStoryStore();
+  const { addInitiative, initiatives } = useInitiativeStore();
+  const { addFeature, features } = useFeatureStore();
+  const { addEpic, epics } = useEpicStore();
+  const { addStory, stories } = useStoryStore();
   const { addUseCase } = useUseCaseStore();
 
   const [selectedWorkItem, setSelectedWorkItem] = useState<string>('');
@@ -144,6 +144,96 @@ export default function CodePage() {
   const previewRef = useRef<HTMLIFrameElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const codeUploadRef = useRef<HTMLInputElement>(null);
+
+  // Check for selected work item from session storage on component mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedWorkItem = sessionStorage.getItem('selectedWorkItem');
+      
+      if (storedWorkItem) {
+        try {
+          const workItemData = JSON.parse(storedWorkItem);
+          // Create a work item ID that matches the mock data structure
+          setSelectedWorkItem(workItemData.id);
+          
+          // Clear the session storage after using it
+          sessionStorage.removeItem('selectedWorkItem');
+        } catch (error) {
+          console.error('Failed to parse stored work item data:', error);
+        }
+      }
+    }
+  }, []);
+
+  // Combine all work items from stores
+  const allWorkItems = React.useMemo(() => {
+    const combinedItems: Array<{
+      id: string;
+      title: string;
+      description: string;
+      type: string;
+      priority: string;
+      status: string;
+    }> = [];
+    
+    // Add initiatives
+    initiatives.forEach(item => {
+      combinedItems.push({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: 'initiative',
+        priority: item.priority,
+        status: item.status
+      });
+    });
+    
+    // Add features
+    features.forEach(item => {
+      combinedItems.push({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: 'feature',
+        priority: item.priority,
+        status: item.status
+      });
+    });
+    
+    // Add epics
+    epics.forEach(item => {
+      combinedItems.push({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: 'epic',
+        priority: item.priority,
+        status: item.status
+      });
+    });
+    
+    // Add stories
+    stories.forEach(item => {
+      combinedItems.push({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: 'story',
+        priority: item.priority,
+        status: item.status
+      });
+    });
+    
+    // Fall back to mock data if no items from stores
+    return combinedItems.length > 0 ? combinedItems : mockWorkItems.map(item => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      type: item.type || 'unknown',
+      priority: item.priority,
+      status: item.status
+    }));
+  }, [initiatives, features, epics, stories]);
 
   // Reverse Engineering State
   const [showReverseEngineer, setShowReverseEngineer] = useState(false);
@@ -311,7 +401,7 @@ export default function CodePage() {
         });
       }, 300);
 
-      const workItem = mockWorkItems.find(item => item.id === selectedWorkItem);
+      const workItem = allWorkItems.find(item => item.id === selectedWorkItem);
       if (!workItem) return;
 
       // Prepare image data if file is uploaded
@@ -427,7 +517,7 @@ Make sure the code is well-structured, follows best practices, and includes prop
       }
       
       // Continue with fallback...
-      const workItem = mockWorkItems.find(item => item.id === selectedWorkItem);
+      const workItem = allWorkItems.find(item => item.id === selectedWorkItem);
       
       // Special handling for single HTML file
       if (selectedLanguage === 'html-single') {
@@ -1768,7 +1858,7 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
     }
   };
 
-  const selectedWorkItemData = mockWorkItems.find(item => item.id === selectedWorkItem);
+  const selectedWorkItemData = allWorkItems.find(item => item.id === selectedWorkItem);
 
   return (
     <div className={`container mx-auto p-6 space-y-6 ${isFullscreen ? 'fixed inset-0 z-50 bg-white overflow-auto' : ''}`}>
@@ -1827,13 +1917,18 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                           <SelectValue placeholder="Choose a work item to implement" />
                         </SelectTrigger>
                         <SelectContent>
-                          {mockWorkItems.map((item) => (
+                          {allWorkItems.map((item) => (
                             <SelectItem key={item.id} value={item.id}>
-                              <div className="flex flex-col">
-                                <span className="font-medium">{item.title}</span>
-                                <span className="text-xs text-gray-500 truncate">
-                                  {item.description.substring(0, 60)}...
-                                </span>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs px-1 py-0.5 shrink-0">
+                                  {item.type}
+                                </Badge>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{item.title}</span>
+                                  <span className="text-xs text-gray-500 truncate">
+                                    {item.description.substring(0, 60)}...
+                                  </span>
+                                </div>
                               </div>
                             </SelectItem>
                           ))}

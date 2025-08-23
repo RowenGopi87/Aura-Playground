@@ -43,7 +43,7 @@ export default function ExecutionPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
-  const [summaryCardsVisible, setSummaryCardsVisible] = useState(true);
+  const [summaryCardsVisible, setSummaryCardsVisible] = useState(false);
 
   // Mock execution logs
   const [executionLogs, setExecutionLogs] = useState<string[]>([

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -83,10 +83,10 @@ type ViewportType = 'desktop' | 'tablet' | 'mobile';
 
 export default function DesignPage() {
   // Store hooks
-  const { addInitiative } = useInitiativeStore();
-  const { addFeature } = useFeatureStore();
-  const { addEpic } = useEpicStore();
-  const { addStory } = useStoryStore();
+  const { addInitiative, initiatives } = useInitiativeStore();
+  const { addFeature, features } = useFeatureStore();
+  const { addEpic, epics } = useEpicStore();
+  const { addStory, stories } = useStoryStore();
   const { addUseCase } = useUseCaseStore();
 
   // Design Generation State
@@ -123,6 +123,104 @@ export default function DesignPage() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workItemImageRef = useRef<HTMLInputElement>(null);
+
+  // Check for selected work item from session storage on component mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedWorkItem = sessionStorage.getItem('selectedWorkItem');
+      const storedTab = sessionStorage.getItem('selectedWorkItemTab');
+      
+      if (storedWorkItem) {
+        try {
+          const workItemData = JSON.parse(storedWorkItem);
+          // Create a work item ID that matches the mock data structure
+          setSelectedWorkItem(workItemData.id);
+          
+          // Set the tab to work-item if it was set from the Work Items table
+          if (storedTab === 'work-item') {
+            setSelectedTab('work-item');
+          }
+          
+          // Clear the session storage after using it
+          sessionStorage.removeItem('selectedWorkItem');
+          sessionStorage.removeItem('selectedWorkItemTab');
+        } catch (error) {
+          console.error('Failed to parse stored work item data:', error);
+        }
+      }
+    }
+  }, []);
+
+  // Combine all work items from stores
+  const allWorkItems = React.useMemo(() => {
+    const combinedItems: Array<{
+      id: string;
+      title: string;
+      description: string;
+      type: string;
+      priority: string;
+      status: string;
+    }> = [];
+    
+    // Add initiatives
+    initiatives.forEach(item => {
+      combinedItems.push({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: 'initiative',
+        priority: item.priority,
+        status: item.status
+      });
+    });
+    
+    // Add features
+    features.forEach(item => {
+      combinedItems.push({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: 'feature',
+        priority: item.priority,
+        status: item.status
+      });
+    });
+    
+    // Add epics
+    epics.forEach(item => {
+      combinedItems.push({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: 'epic',
+        priority: item.priority,
+        status: item.status
+      });
+    });
+    
+    // Add stories
+    stories.forEach(item => {
+      combinedItems.push({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: 'story',
+        priority: item.priority,
+        status: item.status
+      });
+    });
+    
+    // Fall back to mock data if no items from stores
+    return combinedItems.length > 0 ? combinedItems : mockWorkItems.map(item => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      type: item.type || 'unknown',
+      priority: item.priority,
+      status: item.status
+    }));
+  }, [initiatives, features, epics, stories]);
+
   const previewRef = useRef<HTMLIFrameElement>(null);
   const designUploadRef = useRef<HTMLInputElement>(null);
 
@@ -488,7 +586,7 @@ export default function DesignPage() {
           prompt = `Generate a modern, responsive web component based on the Figma design at the provided URL. ${designPrompt || 'Create a clean, professional implementation with proper styling and interactions.'}`;
         }
       } else {
-        const workItem = mockWorkItems.find(item => item.id === selectedWorkItem);
+        const workItem = allWorkItems.find(item => item.id === selectedWorkItem);
         if (workItem) {
           context = `Work Item: ${workItem.title}`;
           let workItemPrompt = `Generate a modern, responsive web component for the work item "${workItem.title}". 
@@ -828,13 +926,18 @@ ${generatedCode.html}`;
                               <SelectValue placeholder="Choose a work item" />
                             </SelectTrigger>
                             <SelectContent>
-                              {mockWorkItems.map((item) => (
+                              {allWorkItems.map((item) => (
                                 <SelectItem key={item.id} value={item.id}>
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">{item.title}</span>
-                                    <span className="text-xs text-gray-500 truncate">
-                                      {item.description.substring(0, 60)}...
-                                    </span>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-xs px-1 py-0.5 shrink-0">
+                                      {item.type}
+                                    </Badge>
+                                    <div className="flex flex-col">
+                                      <span className="font-medium">{item.title}</span>
+                                      <span className="text-xs text-gray-500 truncate">
+                                        {item.description.substring(0, 60)}...
+                                      </span>
+                                    </div>
                                   </div>
                                 </SelectItem>
                               ))}
@@ -846,7 +949,7 @@ ${generatedCode.html}`;
                           <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                             <h4 className="font-medium text-blue-900 mb-2">Selected Work Item</h4>
                             <p className="text-sm text-blue-700">
-                              {mockWorkItems.find(item => item.id === selectedWorkItem)?.description}
+                              {allWorkItems.find(item => item.id === selectedWorkItem)?.description}
                             </p>
                           </div>
                         )}

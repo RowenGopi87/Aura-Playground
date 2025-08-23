@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,6 +17,8 @@ import { useFeatureStore } from '@/store/feature-store';
 import { useEpicStore } from '@/store/epic-store';
 import { useStoryStore } from '@/store/story-store';
 import { useUseCaseStore } from '@/store/use-case-store';
+import { WorkItemSearchBox } from '@/components/ui/work-item-search-box';
+import { AIDesignGenerationModal } from '@/components/ui/ai-design-generation-modal';
 import { notify } from '@/lib/notification-helper';
 import {
   Upload,
@@ -85,19 +87,32 @@ type ViewportType = 'desktop' | 'tablet' | 'mobile';
 
 export default function DesignPage() {
   // Store hooks
-  const { addInitiative, initiatives } = useInitiativeStore();
-  const { addFeature, features } = useFeatureStore();
-  const { addEpic, epics } = useEpicStore();
-  const { addStory, stories } = useStoryStore();
-  const { addUseCase } = useUseCaseStore();
+  const { initiatives, addInitiative } = useInitiativeStore();
+  const { features, addFeature } = useFeatureStore();
+  const { epics, addEpic } = useEpicStore();
+  const { stories, addStory } = useStoryStore();
+  const { businessBriefs, addUseCase } = useUseCaseStore();
 
   // Design Generation State
-  const [selectedTab, setSelectedTab] = useState<'figma' | 'work-item'>('figma');
+  const [selectedTab, setSelectedTab] = useState<'figma' | 'work-item'>('work-item'); // Default to work-item as requested
   const [designImage, setDesignImage] = useState<File | null>(null);
   const [workItemImage, setWorkItemImage] = useState<File | null>(null);
   const [figmaUrl, setFigmaUrl] = useState('');
   const [selectedWorkItem, setSelectedWorkItem] = useState<string>('');
+  const [selectedWorkItemType, setSelectedWorkItemType] = useState<string>('');
+  const [selectedWorkItemPath, setSelectedWorkItemPath] = useState<string>('');
   const [designPrompt, setDesignPrompt] = useState('');
+  
+  // Data states
+  const [portfolios, setPortfolios] = useState<Array<{id: string, name: string, description: string, function: string, color?: string}>>([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [hasGenerated, setHasGenerated] = useState(false);
+  
+  // AI Generation Modal states
+  const [isAiGenerationModalOpen, setIsAiGenerationModalOpen] = useState(false);
+  const [aiGenerationMessage, setAiGenerationMessage] = useState('');
+  const [aiGenerationStage, setAiGenerationStage] = useState<'analyzing' | 'designing' | 'coding' | 'finalizing'>('analyzing');
+  
   const [generatedCode, setGeneratedCode] = useState<GeneratedCode | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
@@ -126,117 +141,156 @@ export default function DesignPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workItemImageRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLIFrameElement>(null);
-  const designUploadRef = useRef<HTMLInputElement>(null);
 
-  // Check for selected work item from session storage on component mount
+  // Load portfolios and work items data
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedWorkItem = sessionStorage.getItem('selectedWorkItem');
-      const storedTab = sessionStorage.getItem('selectedWorkItemTab');
-      
-      console.log('🔍 V1 Design - storedWorkItem:', storedWorkItem);
-      console.log('🔍 V1 Design - storedTab:', storedTab);
-      
-      if (storedWorkItem) {
-        try {
-          const workItemData = JSON.parse(storedWorkItem);
-          console.log('🔍 V1 Design - workItemData:', workItemData);
-          // Create a work item ID that matches the mock data structure
-          setSelectedWorkItem(workItemData.id);
-          console.log('🔍 V1 Design - setting selectedWorkItem to:', workItemData.id);
-          
-          // Set the tab to work-item if it was set from the Work Items table
-          if (storedTab === 'work-item') {
-            console.log('🔍 V1 Design - switching to work-item tab');
-            setSelectedTab('work-item');
-          }
-          
-          // Clear the session storage after using it
-          sessionStorage.removeItem('selectedWorkItem');
-          sessionStorage.removeItem('selectedWorkItemTab');
-        } catch (error) {
-          console.error('Failed to parse stored work item data:', error);
+    const loadData = async () => {
+      try {
+        setIsLoadingData(true);
+        
+        // Load portfolios
+        const portfolioResponse = await fetch('/api/portfolios');
+        const portfolioData = await portfolioResponse.json();
+        if (portfolioData.success) {
+          setPortfolios(portfolioData.data);
         }
-      } else {
-        console.log('🔍 V1 Design - No stored work item found');
+
+        // Only load work items data if stores are empty to avoid duplicates
+        const shouldLoadData = initiatives.length === 0 && features.length === 0 && epics.length === 0 && stories.length === 0 && businessBriefs.length === 0;
+        
+        if (shouldLoadData) {
+          console.log('🔄 Loading work items data from API...');
+          // Load all work items data from the stores by triggering their load functions
+          // This ensures we have data for the WorkItemSearchBox
+          await Promise.all([
+          // Load initiatives
+          fetch('/api/initiatives/list').then(async res => {
+            const data = await res.json();
+            if (data.success) {
+              data.data.forEach((item: any) => addInitiative({
+                id: item.id,
+                businessBriefId: item.businessBriefId,
+                portfolioId: item.portfolioId,
+                title: item.title,
+                description: item.description,
+                category: 'business',
+                priority: item.priority,
+                rationale: item.description,
+                acceptanceCriteria: Array.isArray(item.acceptanceCriteria) ? item.acceptanceCriteria : JSON.parse(item.acceptanceCriteria || '[]'),
+                businessValue: item.businessValue,
+                workflowLevel: 'initiative',
+                status: item.status,
+                createdAt: new Date(item.createdAt),
+                updatedAt: new Date(item.updatedAt),
+                createdBy: item.assignedTo || 'System',
+                assignedTo: item.assignedTo || 'Team'
+              }));
+            }
+          }),
+          
+          // Load features
+          fetch('/api/features/list').then(async res => {
+            const data = await res.json();
+            if (data.success) {
+              data.data.forEach((item: any) => addFeature({
+                id: item.id,
+                initiativeId: item.initiativeId,
+                businessBriefId: item.businessBriefId,
+                title: item.title,
+                description: item.description,
+                priority: item.priority,
+                status: item.status,
+                acceptanceCriteria: Array.isArray(item.acceptanceCriteria) ? item.acceptanceCriteria : JSON.parse(item.acceptanceCriteria || '[]'),
+                businessValue: item.businessValue || '',
+                createdAt: new Date(item.createdAt),
+                updatedAt: new Date(item.updatedAt)
+              }));
+            }
+          }),
+          
+          // Load epics
+          fetch('/api/epics/list').then(async res => {
+            const data = await res.json();
+            if (data.success) {
+              data.data.forEach((item: any) => addEpic({
+                id: item.id,
+                featureId: item.featureId,
+                businessBriefId: item.businessBriefId,
+                title: item.title,
+                description: item.description,
+                priority: item.priority,
+                status: item.status,
+                acceptanceCriteria: Array.isArray(item.acceptanceCriteria) ? item.acceptanceCriteria : JSON.parse(item.acceptanceCriteria || '[]'),
+                businessValue: item.businessValue || '',
+                createdAt: new Date(item.createdAt),
+                updatedAt: new Date(item.updatedAt)
+              }));
+            }
+          }),
+          
+          // Load stories
+          fetch('/api/stories/list').then(async res => {
+            const data = await res.json();
+            if (data.success) {
+              data.data.forEach((item: any) => addStory({
+                id: item.id,
+                epicId: item.epicId,
+                businessBriefId: item.businessBriefId,
+                title: item.title,
+                description: item.description,
+                priority: item.priority,
+                status: item.status,
+                acceptanceCriteria: Array.isArray(item.acceptance_criteria) ? item.acceptance_criteria : JSON.parse(item.acceptance_criteria || '[]'),
+                businessValue: item.businessValue || '',
+                storyPoints: item.storyPoints || 0,
+                createdAt: new Date(item.createdAt),
+                updatedAt: new Date(item.updatedAt)
+              }));
+            }
+          }),
+          
+          // Load business briefs
+          fetch('/api/business-briefs/list').then(async res => {
+            const data = await res.json();
+            if (data.success) {
+              data.data.forEach((brief: any) => addUseCase({
+                businessBriefId: brief.id,
+                id: brief.id,
+                title: brief.title,
+                description: brief.description,
+                status: brief.status,
+                priority: brief.priority,
+                owner: brief.owner,
+                progress: brief.progress,
+                createdAt: new Date(brief.createdAt),
+                updatedAt: new Date(brief.updatedAt)
+              }));
+            }
+          })
+        ]);
+        } else {
+          console.log('🔄 Work items already loaded, skipping API calls');
+        }
+        
+      } catch (error) {
+        console.error('Failed to load design page data:', error);
+        notify.error('Failed to load data', 'Failed to load design page data');
+      } finally {
+        setIsLoadingData(false);
       }
-    }
-  }, []);
+    };
 
-  // Combine all work items from stores
-  const allWorkItems = React.useMemo(() => {
-    const combinedItems: Array<{
-      id: string;
-      title: string;
-      description: string;
-      type: string;
-      priority: string;
-      status: string;
-    }> = [];
-    
-    // Add initiatives
-    initiatives.forEach(item => {
-      combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'initiative',
-        priority: item.priority,
-        status: item.status
-      });
-    });
-    
-    // Add features
-    features.forEach(item => {
-      combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'feature',
-        priority: item.priority,
-        status: item.status
-      });
-    });
-    
-    // Add epics
-    epics.forEach(item => {
-      combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'epic',
-        priority: item.priority,
-        status: item.status
-      });
-    });
-    
-    // Add stories
-    stories.forEach(item => {
-      combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'story',
-        priority: item.priority,
-        status: item.status
-      });
-    });
-    
-    // Fall back to mock data if no items from stores
-    return combinedItems.length > 0 ? combinedItems : mockWorkItems.map(item => ({
-      id: item.id,
-      title: item.title,
-      description: item.description,
-      type: item.type || 'unknown',
-      priority: item.priority,
-      status: item.status
-    }));
-  }, [initiatives, features, epics, stories]);
-
-  // Debug effect to log selectedTab changes
-  useEffect(() => {
-    console.log('🔍 V1 Design - selectedTab changed to:', selectedTab);
-  }, [selectedTab]);
+    loadData();
+  }, [addInitiative, addFeature, addEpic, addStory, addUseCase]);
+  
+  // Handle work item selection changes
+  const handleWorkItemSelection = (workItemId: string, workItemType: string, fullPath: string) => {
+    setSelectedWorkItem(workItemId);
+    setSelectedWorkItemType(workItemType);
+    setSelectedWorkItemPath(fullPath);
+  };
+  
+  const designUploadRef = useRef<HTMLInputElement>(null);
 
   // Effect to ensure preview is updated when switching to preview mode
   useEffect(() => {
@@ -573,23 +627,30 @@ export default function DesignPage() {
       return;
     }
 
+    setHasGenerated(true); // Mark that generation has started
     setIsGenerating(true);
     setGenerationProgress(0);
-
-    // Declare progressInterval outside try-catch so it's accessible in both blocks
-    let progressInterval: NodeJS.Timeout | null = null;
+    
+    // Open AI generation modal
+    setIsAiGenerationModalOpen(true);
+    setAiGenerationStage('analyzing');
+    setAiGenerationMessage('Analyzing your design requirements...');
 
     try {
-      // Simulate progress
-      progressInterval = setInterval(() => {
-        setGenerationProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval!);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 200);
+      // Stage 1: Analyzing (25%)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setAiGenerationStage('designing');
+      setAiGenerationMessage('Creating beautiful design components...');
+      
+      // Stage 2: Designing (50%) 
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setAiGenerationStage('coding');
+      setAiGenerationMessage('Generating production-ready code...');
+      
+      // Stage 3: Coding (75%)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setAiGenerationStage('finalizing');
+      setAiGenerationMessage('Adding final touches and optimization...');
 
       // Prepare the request payload
       let prompt = '';
@@ -617,10 +678,11 @@ export default function DesignPage() {
           prompt = `Generate a modern, responsive web component based on the Figma design at the provided URL. ${designPrompt || 'Create a clean, professional implementation with proper styling and interactions.'}`;
         }
       } else {
+        const allWorkItems = [...initiatives, ...features, ...epics, ...stories];
         const workItem = allWorkItems.find(item => item.id === selectedWorkItem);
         if (workItem) {
-          context = `Work Item: ${workItem.title}`;
-          let workItemPrompt = `Generate a modern, responsive web component for the work item "${workItem.title}". 
+          context = `Work Item: ${workItem.title} (${selectedWorkItemType})`;
+          let workItemPrompt = `Generate a modern, responsive web component for the ${selectedWorkItemType} "${workItem.title}". 
           
 Description: ${workItem.description}
 Requirements: Create a user interface that addresses the work item requirements.`;
@@ -711,7 +773,8 @@ ${designPrompt || 'Focus on user experience, accessibility, and modern design pa
         dataKeys: result.data ? Object.keys(result.data) : 'No data object'
       });
       
-      clearInterval(progressInterval!);
+      // Final stage completion
+      await new Promise(resolve => setTimeout(resolve, 500));
       setGenerationProgress(100);
       
       // Use the generated code from the API (with retry/fallback handled at API level)
@@ -770,6 +833,7 @@ ${designPrompt || 'Focus on user experience, accessibility, and modern design pa
       setTimeout(() => {
         setIsGenerating(false);
         setGenerationProgress(0);
+        setIsAiGenerationModalOpen(false);
       }, 1000);
     }
   };
@@ -914,7 +978,7 @@ ${generatedCode.javascript}
 /* Styles */
 ${generatedCode.css}
 
-<!-- HTML Template -->
+/* HTML Template */
 ${generatedCode.html}`;
     
     const blob = new Blob([content], { type: 'text/plain' });
@@ -964,41 +1028,30 @@ ${generatedCode.html}`;
 
         {/* Design Generation Tab */}
         <TabsContent value="design-generation" className="mt-6">
-          <div className={`grid gap-6 ${isFullscreen ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
+          <div className={`grid gap-6 transition-all duration-500 ease-in-out ${
+            isFullscreen ? 'grid-cols-1' : 
+            hasGenerated ? 'lg:grid-cols-2' : 'lg:grid-cols-2'
+          }`}>
             {/* Design Configuration Section */}
             {!isFullscreen && (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Settings className="w-5 h-5 mr-2" />
+                  <CardHeader className="pb-4">
+                    <CardTitle className="flex items-center text-base">
+                      <Settings className="w-4 h-4 mr-2" />
                       Design Configuration
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className="text-sm">
                       Configure your design generation settings and input source
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-6">
+                  <CardContent className="space-y-4">
                     {/* Input Source Selection */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         Input Source
                       </label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <Button
-                          variant={selectedTab === 'figma' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => {
-                            setSelectedTab('figma');
-                            // Clear other tab's data when switching
-                            setSelectedWorkItem('');
-                            setWorkItemImage(null);
-                          }}
-                          className="flex flex-col items-center p-4 h-auto"
-                        >
-                          <FileImage className="w-5 h-5 mb-1" />
-                          <span className="text-xs">Figma & Images</span>
-                        </Button>
+                      <div className="grid grid-cols-2 gap-2">
                         <Button
                           variant={selectedTab === 'work-item' ? 'default' : 'outline'}
                           size="sm"
@@ -1008,17 +1061,31 @@ ${generatedCode.html}`;
                             setDesignImage(null);
                             setFigmaUrl('');
                           }}
-                          className="flex flex-col items-center p-4 h-auto"
+                          className="flex flex-col items-center p-3 h-auto"
                         >
-                          <FileText className="w-5 h-5 mb-1" />
+                          <FileText className="w-4 h-4 mb-1" />
                           <span className="text-xs">Work Items</span>
+                        </Button>
+                        <Button
+                          variant={selectedTab === 'figma' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => {
+                            setSelectedTab('figma');
+                            // Clear other tab's data when switching
+                            setSelectedWorkItem('');
+                            setWorkItemImage(null);
+                          }}
+                          className="flex flex-col items-center p-3 h-auto"
+                        >
+                          <FileImage className="w-4 h-4 mb-1" />
+                          <span className="text-xs">Figma & Images</span>
                         </Button>
                       </div>
                     </div>
 
                     {/* Figma & Images Tab */}
                     {selectedTab === 'figma' && (
-                      <div className="space-y-4">
+                      <div className="space-y-3">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
                             Figma URL
@@ -1072,41 +1139,31 @@ ${generatedCode.html}`;
                     {/* Work Items Tab */}
                     {selectedTab === 'work-item' && (
                       <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Select Work Item
-                          </label>
-                          <Select value={selectedWorkItem} onValueChange={setSelectedWorkItem}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Choose a work item" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {allWorkItems.map((item) => (
-                                <SelectItem key={item.id} value={item.id}>
-                                  <div className="flex items-center gap-2">
-                                    <Badge variant="outline" className="text-xs px-1 py-0.5 shrink-0">
-                                      {item.type}
-                                    </Badge>
-                                    <div className="flex flex-col">
-                                      <span className="font-medium">{item.title}</span>
-                                      <span className="text-xs text-gray-500 truncate">
-                                        {item.description.substring(0, 60)}...
-                                      </span>
-                                    </div>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {selectedWorkItem && (
-                          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                            <h4 className="font-medium text-blue-900 mb-2">Selected Work Item</h4>
-                            <p className="text-sm text-blue-700">
-                              {allWorkItems.find(item => item.id === selectedWorkItem)?.description}
-                            </p>
+                        {isLoadingData ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                            <span className="text-sm text-gray-600">Loading work items...</span>
                           </div>
+                        ) : (
+                          <>
+                            {/* Debug info */}
+                            <div className="mb-2 p-2 bg-gray-50 rounded text-xs">
+                              <div>Debug: {initiatives?.length || 0} initiatives, {features?.length || 0} features, {epics?.length || 0} epics, {stories?.length || 0} stories, {portfolios?.length || 0} portfolios, {businessBriefs?.length || 0} briefs</div>
+                            </div>
+                            <WorkItemSearchBox
+                              initiatives={initiatives}
+                              features={features}
+                              epics={epics}
+                              stories={stories}
+                              portfolios={portfolios}
+                              businessBriefs={businessBriefs}
+                              selectedWorkItemId={selectedWorkItem}
+                              onSelectionChange={handleWorkItemSelection}
+                              allowedTypes={['initiative', 'feature', 'epic', 'story']}
+                              placeholder="Search for a work item to design..."
+                              className=""
+                            />
+                          </>
                         )}
                         
                         <div className="text-center text-sm text-gray-500">and/or</div>
@@ -1169,7 +1226,8 @@ ${generatedCode.html}`;
                         placeholder="Describe your design requirements, style preferences, or specific features..."
                         value={designPrompt}
                         onChange={(e) => setDesignPrompt(e.target.value)}
-                        className="min-h-[80px]"
+                        className="min-h-[60px] text-sm"
+                        rows={2}
                       />
                     </div>
 
@@ -1193,25 +1251,18 @@ ${generatedCode.html}`;
                       )}
                     </Button>
                     
-                    {isGenerating && (
-                      <div className="mt-4">
-                        <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
-                          <span>Analyzing design and generating code...</span>
-                          <span>{generationProgress}%</span>
-                        </div>
-                        <Progress value={generationProgress} className="h-2" />
-                      </div>
-                    )}
+                    {/* Progress now handled by AI generation modal */}
                   </CardContent>
                 </Card>
               </div>
             )}
 
             {/* Design Output Section */}
-            <div className={`space-y-6 ${isFullscreen ? 'h-screen' : ''}`}>
-              {generatedCode ? (
-                <Card className={isFullscreen ? 'h-full flex flex-col' : ''}>
-                  <CardHeader className="flex-shrink-0">
+            <div className={`space-y-6 ${isFullscreen ? 'h-screen' : ''} transition-all duration-500 ease-in-out`}>
+              {hasGenerated ? (
+                generatedCode ? (
+                  <Card className={isFullscreen ? 'h-full flex flex-col' : ''}>
+                    <CardHeader className="flex-shrink-0">
                     <div className="flex items-center justify-between">
                       <CardTitle className="flex items-center">
                         <Code2 className="w-5 h-5 mr-2" />
@@ -1447,6 +1498,17 @@ ${generatedCode.html}`;
                     </p>
                   </CardContent>
                 </Card>
+              ) : (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <Palette className="w-16 h-16 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Ready to Generate Design</h3>
+                    <p className="text-gray-600 text-center max-w-md">
+                      Click "Generate Design Code" to start the AI-powered design generation process.
+                    </p>
+                  </CardContent>
+                </Card>
+              )
               )}
             </div>
           </div>
@@ -2046,6 +2108,14 @@ ${generatedCode.html}`;
           </AlertDescription>
         </Alert>
       )}
+      
+      {/* AI Design Generation Modal */}
+      <AIDesignGenerationModal
+        isOpen={isAiGenerationModalOpen}
+        onOpenChange={setIsAiGenerationModalOpen}
+        message={aiGenerationMessage}
+        stage={aiGenerationStage}
+      />
     </div>
   );
 } 

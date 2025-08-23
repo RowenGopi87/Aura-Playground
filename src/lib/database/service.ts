@@ -1,6 +1,6 @@
 // Main database service for Aura's SDLC workflow
 import { db } from './connection';
-import { DatabaseSchema, BusinessBrief, Initiative, Feature, Epic, Story, TestCase, Document, SafeMapping } from './schema';
+import { DatabaseSchema, BusinessBrief, Initiative, Feature, Epic, Story, TestCase, Document, SafeMapping, Portfolio } from './schema';
 
 export interface DatabaseService {
   // Initialization
@@ -14,13 +14,19 @@ export interface DatabaseService {
   updateBusinessBrief(id: string, updates: Partial<BusinessBrief>): Promise<BusinessBrief>;
   deleteBusinessBrief(id: string): Promise<boolean>;
   
+  // Portfolios
+  getAllPortfolios(): Promise<Portfolio[]>;
+  getPortfolio(id: string): Promise<Portfolio | null>;
+  
   // Initiatives
   createInitiative(initiative: Partial<Initiative>): Promise<Initiative>;
   getInitiative(id: string): Promise<Initiative | null>;
   getInitiativesByBusinessBrief(businessBriefId: string): Promise<Initiative[]>;
+  getInitiativesByPortfolio(portfolioId: string): Promise<Initiative[]>;
   getAllInitiatives(): Promise<Initiative[]>;
   updateInitiative(id: string, updates: Partial<Initiative>): Promise<Initiative>;
   deleteInitiative(id: string): Promise<boolean>;
+  assignInitiativeToPortfolio(initiativeId: string, portfolioId: string): Promise<Initiative>;
   
   // Features
   createFeature(feature: Partial<Feature>): Promise<Feature>;
@@ -275,13 +281,75 @@ class AuraDatabaseService implements DatabaseService {
     return updated;
   }
 
+  // Portfolios
+  public async getAllPortfolios(): Promise<Portfolio[]> {
+    const result = await db.execute('SELECT * FROM portfolios ORDER BY name') as any;
+    
+    console.log('🔍 Raw database result structure:', { 
+      isArray: Array.isArray(result), 
+      length: result?.length,
+      type: typeof result,
+      result: result 
+    });
+    
+    // Handle MySQL2 result structures
+    let rows;
+    if (Array.isArray(result) && result.length >= 2 && Array.isArray(result[0])) {
+      // Standard MySQL2 format: [rows, fields]
+      rows = result[0];
+      console.log('📦 Using MySQL2 [rows, fields] format');
+    } else if (Array.isArray(result) && result.length > 0 && result[0]?.id) {
+      // Direct array of portfolio objects
+      rows = result;
+      console.log('📦 Using direct array format');
+    } else {
+      console.error('❌ Unexpected database result format:', result);
+      return [];
+    }
+    
+    if (!Array.isArray(rows)) {
+      console.error('❌ Rows is not an array:', { rows, type: typeof rows });
+      return [];
+    }
+    
+    console.log(`✅ Retrieved ${rows.length} portfolios from database`);
+    
+    return rows.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      function: row.function,
+      color: row.color,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+
+  public async getPortfolio(id: string): Promise<Portfolio | null> {
+    const result = await db.execute('SELECT * FROM portfolios WHERE id = ?', [id]) as any;
+    const rows = Array.isArray(result) ? result[0] : result;
+    
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    
+    const row = rows[0];
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      function: row.function,
+      color: row.color,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
   // Initiatives
   public async createInitiative(initiative: Partial<Initiative>): Promise<Initiative> {
     const query = `
       INSERT INTO initiatives (
         id, business_brief_id, title, description, business_value, acceptance_criteria,
-        priority, status, assigned_to, estimated_value, workflow_stage, completion_percentage
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        priority, status, assigned_to, portfolio_id, estimated_value, workflow_stage, completion_percentage
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -294,6 +362,7 @@ class AuraDatabaseService implements DatabaseService {
       initiative.priority || 'medium',
       initiative.status || 'backlog',
       initiative.assignedTo || null,
+      initiative.portfolioId || null,
       initiative.estimatedValue || null,
       initiative.workflowStage || 'planning',
       initiative.completionPercentage || 0
@@ -312,6 +381,7 @@ class AuraDatabaseService implements DatabaseService {
       priority: initiative.priority || 'medium',
       status: initiative.status || 'backlog',
       assignedTo: initiative.assignedTo || null,
+      portfolioId: initiative.portfolioId || null,
       estimatedValue: initiative.estimatedValue || null,
       workflowStage: initiative.workflowStage || 'planning',
       completionPercentage: initiative.completionPercentage || 0,
@@ -369,6 +439,28 @@ class AuraDatabaseService implements DatabaseService {
   public async deleteInitiative(id: string): Promise<boolean> {
     const result = await db.execute('DELETE FROM initiatives WHERE id = ?', [id]);
     return (result as any).affectedRows > 0;
+  }
+
+  public async getInitiativesByPortfolio(portfolioId: string): Promise<Initiative[]> {
+    const results = await db.execute<any>(
+      'SELECT * FROM initiatives WHERE portfolio_id = ? ORDER BY created_at DESC',
+      [portfolioId]
+    );
+    return results.map(row => this.mapInitiative(row));
+  }
+
+  public async assignInitiativeToPortfolio(initiativeId: string, portfolioId: string): Promise<Initiative> {
+    await db.execute(
+      'UPDATE initiatives SET portfolio_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [portfolioId, initiativeId]
+    );
+    
+    const updated = await this.getInitiative(initiativeId);
+    if (!updated) {
+      throw new Error('Failed to retrieve updated initiative');
+    }
+    
+    return updated;
   }
 
   // Features
@@ -1091,6 +1183,7 @@ class AuraDatabaseService implements DatabaseService {
       priority: row.priority,
       status: row.status,
       assignedTo: row.assigned_to,
+      portfolioId: row.portfolio_id,
       estimatedValue: row.estimated_value,
       workflowStage: row.workflow_stage,
       completionPercentage: row.completion_percentage,
