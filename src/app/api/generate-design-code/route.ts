@@ -11,7 +11,8 @@ const GenerateDesignCodeSchema = z.object({
   designStyle: z.enum(['modern', 'minimal', 'corporate', 'creative']).optional(),
   imageData: z.string().optional(), // Base64 encoded image data
   imageType: z.string().optional(), // Image MIME type
-  preferredProvider: z.enum(['google', 'openai']).optional().default('google')
+  preferredProvider: z.enum(['google', 'openai']).optional().default('google'),
+  useRealLLM: z.boolean().default(true) // Toggle for using real LLM vs mock
 });
 
 export async function POST(request: NextRequest) {
@@ -23,10 +24,11 @@ export async function POST(request: NextRequest) {
     console.log('📥 Request body:', body);
 
     const validatedData = GenerateDesignCodeSchema.parse(body);
-    const { prompt, context, framework, includeResponsive, includeAccessibility, designStyle, imageData, imageType, preferredProvider } = validatedData;
+    const { prompt, context, framework, includeResponsive, includeAccessibility, designStyle, imageData, imageType, preferredProvider, useRealLLM } = validatedData;
 
     console.log('✅ Request validation passed');
     console.log('🔍 Generating code for:', context);
+    console.log('⚙️ Using real LLM:', useRealLLM);
 
     // Build the comprehensive system prompt for UI/UX conversion
     const systemPrompt = buildUIUXConversionPrompt();
@@ -46,8 +48,23 @@ export async function POST(request: NextRequest) {
     console.log('📋 System prompt length:', systemPrompt.length);
     console.log('📋 User prompt length:', userPrompt.length);
 
-    // Call the LLM service to generate code with retry mechanism
-    const generatedCode = await generateCodeWithRetryAndFallback(systemPrompt, userPrompt, framework, imageData, imageType, preferredProvider);
+    // Check if we should use real LLM or mock
+    let generatedCode;
+    if (useRealLLM) {
+      // Call the LLM service to generate code with retry mechanism
+      generatedCode = await generateCodeWithRetryAndFallback(systemPrompt, userPrompt, framework, imageData, imageType, preferredProvider);
+    } else {
+      // Use mock data for testing
+      console.log('🎭 Using mock mode for testing');
+      generatedCode = {
+        html: generateEnhancedMockHTML(framework, imageData ? 'image-based' : 'text-based'),
+        css: generateEnhancedMockCSS(),
+        javascript: generateEnhancedMockJavaScript(framework),
+        framework,
+        provider: 'Mock',
+        isMock: true
+      };
+    }
 
     console.log('✅ Code generated successfully');
 
@@ -63,6 +80,8 @@ export async function POST(request: NextRequest) {
           designStyle,
           hasImage: !!imageData,
           generatedAt: new Date().toISOString(),
+          usedRealLLM: useRealLLM,
+          isMock: !useRealLLM || generatedCode.isMock,
         },
       },
       message: 'Design code generated successfully',
