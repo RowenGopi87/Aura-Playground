@@ -145,6 +145,7 @@ export default function DesignPage() {
   // Start with first few portfolios expanded by default so users can see the structure
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [portfolios, setPortfolios] = useState<any[]>([]);
+  const [initiativePortfolioMapping, setInitiativePortfolioMapping] = useState<Record<string, string>>({});
   
   // Get business briefs from the store (same as Requirements page)
   const { useCases: businessBriefs } = useUseCaseStore();
@@ -165,7 +166,153 @@ export default function DesignPage() {
     }
   };
 
-  // Initial data loading when page mounts (same as Requirements page)
+  // Load work items from database (includes portfolioId values)
+  const loadWorkItemsFromDatabase = async () => {
+    try {
+      console.log('🔄 Loading work items from database...');
+      
+      // Load all work items from API (they include portfolioId from database)
+      const [initiativesRes, featuresRes, epicsRes, storiesRes] = await Promise.all([
+        fetch('/api/initiatives/list'),
+        fetch('/api/features/list'),  
+        fetch('/api/epics/list'),
+        fetch('/api/stories/list')
+      ]);
+      
+      // Parse responses
+      const [initiativesData, featuresData, epicsData, storiesData] = await Promise.all([
+        initiativesRes.json(),
+        featuresRes.json(),
+        epicsRes.json(), 
+        storiesRes.json()
+      ]);
+      
+      // Clear existing store data to avoid duplicates
+      const initiativeStore = useInitiativeStore.getState();
+      const featureStore = useFeatureStore.getState();
+      const epicStore = useEpicStore.getState();
+      const storyStore = useStoryStore.getState();
+      
+      // Load initiatives (with portfolioId from database)
+      if (initiativesData.success) {
+        const portfolioMapping: Record<string, string> = {};
+        
+        initiativesData.data.forEach((item: any) => {
+          // Store portfolio mapping for grouping
+          if (item.portfolioId) {
+            portfolioMapping[item.id] = item.portfolioId;
+          }
+          
+          addInitiative({
+            id: item.id,
+            businessBriefId: item.businessBriefId,
+            title: item.title,
+            description: item.description,
+            category: 'business',
+            priority: item.priority,
+            rationale: item.businessValue || item.description,
+            acceptanceCriteria: typeof item.acceptanceCriteria === 'string' 
+              ? JSON.parse(item.acceptanceCriteria || '[]')
+              : (item.acceptanceCriteria || []),
+            businessValue: item.businessValue || '',
+            workflowLevel: 'initiative',
+            status: item.status,
+            createdAt: new Date(item.createdAt),
+            updatedAt: new Date(item.updatedAt),
+            createdBy: item.assignedTo || 'System',
+            assignedTo: item.assignedTo || 'Team'
+          });
+        });
+        
+        // Update portfolio mapping state
+        setInitiativePortfolioMapping(portfolioMapping);
+        console.log(`✅ Loaded ${initiativesData.data.length} initiatives with portfolio mapping`);
+      }
+      
+      // Load other work items similarly...
+      if (featuresData.success) {
+        featuresData.data.forEach((item: any) => addFeature({
+          id: item.id,
+          initiativeId: item.initiativeId,
+          businessBriefId: item.businessBriefId,
+          title: item.title,
+          description: item.description,
+          category: 'business',
+          priority: item.priority,
+          rationale: item.businessValue || item.description,
+          status: item.status,
+          acceptanceCriteria: typeof item.acceptanceCriteria === 'string'
+            ? JSON.parse(item.acceptanceCriteria || '[]')
+            : (item.acceptanceCriteria || []),
+          businessValue: item.businessValue || '',
+          workflowLevel: 'feature',
+          createdAt: new Date(item.createdAt),
+          updatedAt: new Date(item.updatedAt),
+          createdBy: 'System',
+          assignedTo: 'Team'
+        }));
+      }
+      
+      if (epicsData.success) {
+        epicsData.data.forEach((item: any) => addEpic({
+          id: item.id,
+          featureId: item.featureId,
+          initiativeId: item.initiativeId,
+          businessBriefId: item.businessBriefId,
+          title: item.title,
+          description: item.description,
+          category: 'business', 
+          priority: item.priority,
+          rationale: item.businessValue || item.description,
+          status: item.status,
+          acceptanceCriteria: typeof item.acceptanceCriteria === 'string'
+            ? JSON.parse(item.acceptanceCriteria || '[]')
+            : (item.acceptanceCriteria || []),
+          businessValue: item.businessValue || '',
+          workflowLevel: 'epic',
+          estimatedEffort: item.estimatedEffort || 'TBD',
+          sprintEstimate: item.sprintEstimate || 1,
+          createdAt: new Date(item.createdAt),
+          updatedAt: new Date(item.updatedAt),
+          createdBy: 'System',
+          assignedTo: 'Team'
+        }));
+      }
+      
+      if (storiesData.success) {
+        storiesData.data.forEach((item: any) => addStory({
+          id: item.id,
+          epicId: item.epicId,
+          featureId: item.featureId,
+          initiativeId: item.initiativeId, 
+          businessBriefId: item.businessBriefId,
+          title: item.title,
+          description: item.description,
+          category: 'business',
+          priority: item.priority,
+          rationale: item.businessValue || item.description,
+          status: item.status,
+          acceptanceCriteria: typeof item.acceptanceCriteria === 'string'
+            ? JSON.parse(item.acceptanceCriteria || '[]')
+            : (item.acceptanceCriteria || []),
+          businessValue: item.businessValue || '',
+          workflowLevel: 'story',
+          storyPoints: item.storyPoints || 0,
+          assignee: item.assignedTo || 'Team',
+          labels: item.labels || [],
+          testingNotes: item.testingNotes || '',
+          createdAt: new Date(item.createdAt),
+          updatedAt: new Date(item.updatedAt),
+          createdBy: 'System'
+        }));
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to load work items:', error);
+    }
+  };
+
+  // Initial data loading when page mounts
   useEffect(() => {
     const loadInitialData = async () => {
       console.log('🚀 Loading initial data for Design page...');
@@ -173,12 +320,14 @@ export default function DesignPage() {
       const useCaseStore = useUseCaseStore.getState();
       
       try {
-        // Load portfolios for grouping
-        await loadPortfolios();
+        // Load portfolios and business briefs
+        await Promise.all([
+          loadPortfolios(),
+          useCaseStore.loadFromDatabase() // Load business briefs
+        ]);
         
-        // Load business briefs (same as Requirements page)
-        console.log('📊 Loading business briefs...');
-        await useCaseStore.loadFromDatabase();
+        // Load work items from database (includes portfolioId)
+        await loadWorkItemsFromDatabase();
         
         console.log('✅ Initial data loading completed');
       } catch (error) {
@@ -1140,8 +1289,8 @@ ${generatedCode.html}`;
     const byPortfolio: Record<string, any> = {};
 
     allWorkItems.filter(item => item.type === 'initiative').forEach(initiative => {
-      // Check if initiative has portfolioId (same as Requirements page logic)
-      const portfolioId = (initiative as any).portfolioId || 'unassigned';
+      // Get portfolioId from the mapping (loaded from database)
+      const portfolioId = initiativePortfolioMapping[initiative.id] || 'unassigned';
       const businessBriefId = (initiative as any).businessBriefId || 'unassigned';
 
       if (!byPortfolio[portfolioId]) {
@@ -1162,7 +1311,7 @@ ${generatedCode.html}`;
     });
 
     return byPortfolio;
-  }, [allWorkItems, portfolios, businessBriefs]);
+  }, [allWorkItems, portfolios, businessBriefs, initiativePortfolioMapping]);
 
   // Get child items for a work item
   const getChildItems = (item: any, type: string) => {
