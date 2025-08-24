@@ -28,6 +28,7 @@ interface FeatureState {
   deleteFeature: (id: string) => void;
   getFeaturesByInitiative: (initiativeId: string) => Feature[];
   getFeaturesByBusinessBrief: (businessBriefId: string) => Feature[];
+  clearFeatures: () => void;
   getFeatureById: (id: string) => Feature | undefined;
   clearFeaturesByInitiative: (initiativeId: string) => void;
 }
@@ -145,6 +146,11 @@ export const useFeatureStore = create<FeatureState>()(
         set((state) => ({
           features: state.features.filter((feature) => feature.id !== id),
         })),
+
+      clearFeatures: () => {
+        console.log('🗑️ Clearing all features from store');
+        set({ features: [] });
+      },
 
       getFeaturesByInitiative: (initiativeId) => {
         const state = get();

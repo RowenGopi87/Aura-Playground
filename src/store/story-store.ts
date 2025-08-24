@@ -33,6 +33,7 @@ interface StoryState {
   deleteStory: (id: string) => void;
   getStoriesByEpic: (epicId: string) => Story[];
   getStoriesByFeature: (featureId: string) => Story[];
+  clearStories: () => void;
   getStoriesByInitiative: (initiativeId: string) => Story[];
   getStoriesByBusinessBrief: (businessBriefId: string) => Story[];
   getStoryById: (id: string) => Story | undefined;
@@ -148,6 +149,11 @@ export const useStoryStore = create<StoryState>()(
         set((state) => ({
           stories: state.stories.filter((story) => story.id !== id),
         })),
+
+      clearStories: () => {
+        console.log('🗑️ Clearing all stories from store');
+        set({ stories: [] });
+      },
 
       getStoriesByEpic: (epicId) => {
         const state = get();

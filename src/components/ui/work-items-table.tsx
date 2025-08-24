@@ -104,15 +104,15 @@ export function WorkItemsTable({
   const [contextMenu, setContextMenu] = useState<{x: number, y: number, item: WorkItem, type: string} | null>(null);
 
   // Get type icon with consistent sizing
-  const getTypeIcon = (type: string) => {
+  const getTypeIcon = (type: string, portfolioColor?: string) => {
     const iconProps = { size: 14, className: "flex-shrink-0" };
     switch (type) {
-      case 'portfolio': return <Building2 {...iconProps} style={{color: '#8B4513'}} />;
+      case 'portfolio': return <Building2 {...iconProps} style={{color: portfolioColor || '#8B4513'}} />;
       case 'brief': return <FileBarChart {...iconProps} style={{color: '#CD853F'}} />;
-      case 'initiative': return <Target {...iconProps} style={{color: '#D4A843'}} />;
-      case 'feature': return <Layers {...iconProps} style={{color: '#7FB37C'}} />; // Changed to green
-      case 'epic': return <BookOpen {...iconProps} style={{color: '#8B7A9B'}} />; // Keep purple
-      case 'story': return <FileText {...iconProps} style={{color: '#5B8DB8'}} />; // Changed to blue
+      case 'initiative': return <Target {...iconProps} style={{color: '#D4A843'}} />;  // Gold
+      case 'feature': return <Layers {...iconProps} style={{color: '#3B82F6'}} />;     // Blue 
+      case 'epic': return <BookOpen {...iconProps} style={{color: '#8B5CF6'}} />;      // Purple
+      case 'story': return <FileText {...iconProps} style={{color: '#10B981'}} />;     // Green
       default: return <FileText {...iconProps} className="text-gray-600" />;
     }
   };
@@ -191,7 +191,7 @@ export function WorkItemsTable({
     }> = {};
 
     initiatives.forEach(initiative => {
-      const portfolioId = initiative.portfolioId || 'unassigned';
+      const portfolioId = initiative.portfolioId && initiative.portfolioId.trim() !== '' ? initiative.portfolioId : 'unassigned';
       const businessBriefId = initiative.businessBriefId;
       
       if (!byPortfolio[portfolioId]) {
@@ -595,7 +595,7 @@ export function WorkItemsTable({
                     <ChevronRight size={14} className="text-gray-600" />
                   )}
                 </button>
-                {getTypeIcon('portfolio')}
+                {getTypeIcon('portfolio', portfolioGroup.portfolio?.color)}
                 <div className="flex-1">
                   <div className="font-semibold text-sm">
                     {portfolioGroup.portfolio?.name || 'Unassigned Portfolio'}

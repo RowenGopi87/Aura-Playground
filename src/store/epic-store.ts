@@ -33,6 +33,7 @@ interface EpicState {
   getEpicsByInitiative: (initiativeId: string) => Epic[];
   getEpicsByBusinessBrief: (businessBriefId: string) => Epic[];
   getEpicById: (id: string) => Epic | undefined;
+  clearEpics: () => void;
 }
 
 export const useEpicStore = create<EpicState>()(
@@ -144,6 +145,11 @@ export const useEpicStore = create<EpicState>()(
         set((state) => ({
           epics: state.epics.filter((epic) => epic.id !== id),
         })),
+
+      clearEpics: () => {
+        console.log('🗑️ Clearing all epics from store');
+        set({ epics: [] });
+      },
 
       getEpicsByFeature: (featureId) => {
         const state = get();

@@ -91,10 +91,10 @@ type ViewportType = 'desktop' | 'tablet' | 'mobile';
 
 export default function DesignPage() {
   // Store hooks
-  const { addInitiative, initiatives } = useInitiativeStore();
-  const { addFeature, features } = useFeatureStore();
-  const { addEpic, epics } = useEpicStore();
-  const { addStory, stories } = useStoryStore();
+  const { addInitiative, initiatives, clearInitiatives } = useInitiativeStore();
+  const { addFeature, features, clearFeatures } = useFeatureStore();
+  const { addEpic, epics, clearEpics } = useEpicStore();
+  const { addStory, stories, clearStories } = useStoryStore();
   const { addUseCase } = useUseCaseStore();
 
   // Design Generation State
@@ -145,7 +145,6 @@ export default function DesignPage() {
   // Start with first few portfolios expanded by default so users can see the structure
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [portfolios, setPortfolios] = useState<any[]>([]);
-  const [initiativePortfolioMapping, setInitiativePortfolioMapping] = useState<Record<string, string>>({});
   
   // Get business briefs from the store (same as Requirements page)
   const { useCases: businessBriefs } = useUseCaseStore();
@@ -166,10 +165,65 @@ export default function DesignPage() {
     }
   };
 
+  // Add loading state to prevent multiple API calls
+  const [isLoadingWorkItems, setIsLoadingWorkItems] = useState(false);
+  const [hasLoadedData, setHasLoadedData] = useState(false);
+
   // Load work items from database (includes portfolioId values)
   const loadWorkItemsFromDatabase = async () => {
     try {
       console.log('🔄 Loading work items from database...');
+      
+      // Multiple guards to prevent ANY duplicate loading (like Work Items tab)
+      if (isLoadingWorkItems) {
+        console.log('🔄 Already loading, skipping...');
+        return;
+      }
+      
+      // Check if ALL work item types are already loaded (not just initiatives)
+      const hasCompleteData = initiatives.length > 0 && features.length > 0 && epics.length > 0 && stories.length > 0;
+      console.log('📊 Current data state:', {
+        initiatives: initiatives.length,
+        features: features.length, 
+        epics: epics.length,
+        stories: stories.length,
+        hasCompleteData,
+        sessionFlag: (window as any)?.auraDesignDataLoaded
+      });
+      
+      if (typeof window !== 'undefined' && (window as any).auraDesignDataLoaded && hasCompleteData) {
+        console.log('🔄 Complete data already loaded in this session, skipping...');
+        return;
+      }
+      
+      // If we reach here, we need to load data (either first time or incomplete data)
+      console.log('🚀 Proceeding to load work items...', 
+        !hasCompleteData ? 'Reason: Incomplete data' : 'Reason: First load'
+      );
+
+      setIsLoadingWorkItems(true);
+      if (typeof window !== 'undefined') {
+        (window as any).auraDesignDataLoaded = true;
+      }
+      
+      // Clear all stores using proper Zustand methods to trigger reactivity
+      console.log('🧹 Before clearing - Current store contents:', {
+        initiatives: initiatives.length,
+        features: features.length,
+        epics: epics.length,
+        stories: stories.length
+      });
+      
+      console.log('🧹 Clearing all store data using proper Zustand methods...');
+      clearInitiatives();
+      clearFeatures();
+      clearEpics(); 
+      clearStories();
+      
+      // Wait for React to process the clearing before loading new data
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      console.log('✅ After clearing and waiting - All stores emptied using reactive methods');
       
       // Load all work items from API (they include portfolioId from database)
       const [initiativesRes, featuresRes, epicsRes, storiesRes] = await Promise.all([
@@ -187,25 +241,22 @@ export default function DesignPage() {
         storiesRes.json()
       ]);
       
-      // Clear existing store data to avoid duplicates
-      const initiativeStore = useInitiativeStore.getState();
-      const featureStore = useFeatureStore.getState();
-      const epicStore = useEpicStore.getState();
-      const storyStore = useStoryStore.getState();
+      console.log('📊 Database results:', {
+        initiatives: initiativesData.data?.length || 0,
+        features: featuresData.data?.length || 0,
+        epics: epicsData.data?.length || 0,
+        stories: storiesData.data?.length || 0
+      });
       
-      // Load initiatives (with portfolioId from database)
+      // Load initiatives (with portfolioId from database) - simplified after complete clearing
       if (initiativesData.success) {
-        const portfolioMapping: Record<string, string> = {};
+        console.log('📊 Loading initiatives from API:', initiativesData.data.length);
         
         initiativesData.data.forEach((item: any) => {
-          // Store portfolio mapping for grouping
-          if (item.portfolioId) {
-            portfolioMapping[item.id] = item.portfolioId;
-          }
-          
           addInitiative({
             id: item.id,
             businessBriefId: item.businessBriefId,
+            portfolioId: item.portfolioId, // Ensure portfolioId is passed from database
             title: item.title,
             description: item.description,
             category: 'business',
@@ -222,19 +273,22 @@ export default function DesignPage() {
             createdBy: item.assignedTo || 'System',
             assignedTo: item.assignedTo || 'Team'
           });
+          console.log('✅ Loaded initiative:', item.id, item.title);
         });
         
-        // Update portfolio mapping state
-        setInitiativePortfolioMapping(portfolioMapping);
+        // Portfolio mapping is now stored directly in initiative.portfolioId
         console.log(`✅ Loaded ${initiativesData.data.length} initiatives with portfolio mapping`);
       }
       
-      // Load other work items similarly...
+      // Load features
       if (featuresData.success) {
+        console.log('📊 Loading features from API:', featuresData.data.length);
+        console.log('✅ Loading features with corrected field mapping');
+        
         featuresData.data.forEach((item: any) => addFeature({
           id: item.id,
-          initiativeId: item.initiativeId,
-          businessBriefId: item.businessBriefId,
+          initiativeId: item.initiative_id || item.initiativeId, // ✅ Use API's snake_case field
+          businessBriefId: item.business_brief_id || item.businessBriefId, // ✅ Use API's snake_case field
           title: item.title,
           description: item.description,
           category: 'business',
@@ -253,12 +307,16 @@ export default function DesignPage() {
         }));
       }
       
+      // Load epics
       if (epicsData.success) {
+        console.log('📊 Loading epics from API:', epicsData.data.length);
+        console.log('✅ Loading epics with corrected field mapping');
+        
         epicsData.data.forEach((item: any) => addEpic({
           id: item.id,
-          featureId: item.featureId,
-          initiativeId: item.initiativeId,
-          businessBriefId: item.businessBriefId,
+          featureId: item.feature_id || item.featureId, // ✅ Use API's snake_case field
+          initiativeId: item.initiative_id || item.initiativeId, // ✅ Use API's snake_case field
+          businessBriefId: item.business_brief_id || item.businessBriefId, // ✅ Use API's snake_case field
           title: item.title,
           description: item.description,
           category: 'business', 
@@ -279,13 +337,17 @@ export default function DesignPage() {
         }));
       }
       
+      // Load stories
       if (storiesData.success) {
+        console.log('📊 Loading stories from API:', storiesData.data.length);
+        console.log('✅ Loading stories with corrected field mapping');
+        
         storiesData.data.forEach((item: any) => addStory({
           id: item.id,
-          epicId: item.epicId,
-          featureId: item.featureId,
-          initiativeId: item.initiativeId, 
-          businessBriefId: item.businessBriefId,
+          epicId: item.epic_id || item.epicId, // ✅ Use API's snake_case field
+          featureId: item.feature_id || item.featureId, // ✅ Use API's snake_case field
+          initiativeId: item.initiative_id || item.initiativeId, // ✅ Use API's snake_case field
+          businessBriefId: item.business_brief_id || item.businessBriefId, // ✅ Use API's snake_case field
           title: item.title,
           description: item.description,
           category: 'business',
@@ -307,15 +369,37 @@ export default function DesignPage() {
         }));
       }
       
+      // Mark data as loaded successfully
+      setHasLoadedData(true);
+      
+      // Validate data was loaded correctly into reactive stores
+      setTimeout(() => {
+        const finalState = {
+          initiatives: useInitiativeStore.getState().initiatives.length,
+          features: useFeatureStore.getState().features.length,
+          epics: useEpicStore.getState().epics.length,
+          stories: useStoryStore.getState().stories.length
+        };
+        console.log('✅ Final validation - Store state after loading:', finalState);
+        console.log('📊 API data loaded:', {
+          initiatives: initiativesData.data?.length || 0,
+          features: featuresData.data?.length || 0, 
+          epics: epicsData.data?.length || 0,
+          stories: storiesData.data?.length || 0
+        });
+      }, 100); // Small delay to ensure React re-renders have completed
+      
     } catch (error) {
       console.error('❌ Failed to load work items:', error);
+    } finally {
+      setIsLoadingWorkItems(false);
     }
   };
 
-  // Initial data loading when page mounts
+  // Initial data loading when page mounts (using Work Items tab strategy)
   useEffect(() => {
     const loadInitialData = async () => {
-      console.log('🚀 Loading initial data for Design page...');
+      console.log('🚀 Loading initial data for Design page (SINGLE LOAD)...');
       
       const useCaseStore = useUseCaseStore.getState();
       
@@ -326,7 +410,7 @@ export default function DesignPage() {
           useCaseStore.loadFromDatabase() // Load business briefs
         ]);
         
-        // Load work items from database (includes portfolioId)
+        // Load work items from database (includes portfolioId) - with session protection
         await loadWorkItemsFromDatabase();
         
         console.log('✅ Initial data loading completed');
@@ -336,7 +420,7 @@ export default function DesignPage() {
     };
     
     loadInitialData();
-  }, []); // Only run once on mount
+  }, []); // Only run once on mount - session flag prevents subsequent loads
 
   // Auto-expand first few portfolios when data is available
   useEffect(() => {
@@ -398,71 +482,63 @@ export default function DesignPage() {
 
   // Combine all work items from stores
   const allWorkItems = React.useMemo(() => {
-    const combinedItems: Array<{
-      id: string;
-      title: string;
-      description: string;
-      type: string;
-      priority: string;
-      status: string;
-    }> = [];
+    const combinedItems: Array<any> = [];
     
-    // Add initiatives
+    // Add initiatives (with portfolioId and businessBriefId for grouping)
     initiatives.forEach(item => {
       combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'initiative',
-        priority: item.priority,
-        status: item.status
+        ...item,  // Include all fields from initiative
+        type: 'initiative'
       });
     });
     
     // Add features
     features.forEach(item => {
       combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'feature',
-        priority: item.priority,
-        status: item.status
+        ...item,  // Include all fields from feature
+        type: 'feature'
       });
     });
     
     // Add epics
     epics.forEach(item => {
       combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'epic',
-        priority: item.priority,
-        status: item.status
+        ...item,  // Include all fields from epic
+        type: 'epic'
       });
     });
     
     // Add stories
     stories.forEach(item => {
       combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'story',
-        priority: item.priority,
-        status: item.status
+        ...item,  // Include all fields from story
+        type: 'story'
       });
+    });
+    
+    console.log('📊 Design Page - Combined work items:', {
+      total: combinedItems.length,
+      initiatives: combinedItems.filter(item => item.type === 'initiative').length,
+      features: combinedItems.filter(item => item.type === 'feature').length,
+      epics: combinedItems.filter(item => item.type === 'epic').length,
+      stories: combinedItems.filter(item => item.type === 'story').length
+    });
+    
+    // Log parent-child relationship counts for debugging
+    const featuresWithParent = combinedItems.filter(item => item.type === 'feature' && (item as any).initiativeId);
+    const epicsWithParent = combinedItems.filter(item => item.type === 'epic' && (item as any).featureId);
+    const storiesWithParent = combinedItems.filter(item => item.type === 'story' && (item as any).epicId);
+    
+    console.log('📊 Parent-child relationships:', {
+      featuresWithParent: featuresWithParent.length,
+      epicsWithParent: epicsWithParent.length,
+      storiesWithParent: storiesWithParent.length
     });
     
     // Fall back to mock data if no items from stores
     return combinedItems.length > 0 ? combinedItems : mockWorkItems.map(item => ({
-      id: item.id,
-      title: item.title,
-      description: item.description,
-      type: item.type || 'unknown',
-      priority: item.priority,
-      status: item.status
+      ...item,
+      type: item.type || 'unknown'
     }));
   }, [initiatives, features, epics, stories]);
 
@@ -1247,14 +1323,14 @@ ${generatedCode.html}`;
     });
   };
 
-  const getTypeIcon = (type: string) => {
+  const getTypeIcon = (type: string, portfolioColor?: string) => {
     switch (type) {
-      case 'portfolio': return <Building2 size={14} className="text-purple-600" />;
-      case 'brief': return <FileText size={12} className="text-amber-600" />;
-      case 'initiative': return <Target size={12} style={{color: '#D4A843'}} />;
-      case 'feature': return <Layers size={12} style={{color: '#5B8DB8'}} />;
-      case 'epic': return <BookOpen size={12} style={{color: '#8B7A9B'}} />;
-      case 'story': return <FileText size={12} style={{color: '#7FB37C'}} />;
+      case 'portfolio': return <Building2 size={14} style={{color: portfolioColor || '#8B4513'}} />;
+      case 'brief': return <FileText size={12} style={{color: '#CD853F'}} />;
+      case 'initiative': return <Target size={12} style={{color: '#D4A843'}} />;  // Gold
+      case 'feature': return <Layers size={12} style={{color: '#3B82F6'}} />;     // Blue
+      case 'epic': return <BookOpen size={12} style={{color: '#8B5CF6'}} />;      // Purple
+      case 'story': return <FileText size={12} style={{color: '#10B981'}} />;     // Green
       default: return <FileText size={12} className="text-gray-600" />;
     }
   };
@@ -1289,8 +1365,8 @@ ${generatedCode.html}`;
     const byPortfolio: Record<string, any> = {};
 
     allWorkItems.filter(item => item.type === 'initiative').forEach(initiative => {
-      // Get portfolioId from the mapping (loaded from database)
-      const portfolioId = initiativePortfolioMapping[initiative.id] || 'unassigned';
+      // Get portfolioId directly from the initiative (loaded from database)
+      const portfolioId = (initiative as any).portfolioId && (initiative as any).portfolioId.trim() !== '' ? (initiative as any).portfolioId : 'unassigned';
       const businessBriefId = (initiative as any).businessBriefId || 'unassigned';
 
       if (!byPortfolio[portfolioId]) {
@@ -1311,47 +1387,62 @@ ${generatedCode.html}`;
     });
 
     return byPortfolio;
-  }, [allWorkItems, portfolios, businessBriefs, initiativePortfolioMapping]);
+  }, [allWorkItems, portfolios, businessBriefs]);
 
   // Get child items for a work item
   const getChildItems = (item: any, type: string) => {
+    console.log(`🔍 getChildItems called for ${type}:`, item.id, item.title);
+    
     switch (type) {
       case 'initiative':
-        return allWorkItems.filter(f => 
+        const features = allWorkItems.filter(f => f.type === 'feature');
+        const matchingFeatures = allWorkItems.filter(f => 
           f.type === 'feature' && (
             (f as any).initiativeId === item.id || 
             ((f as any).businessBriefId === (item as any).businessBriefId && !(f as any).initiativeId)
           )
         );
+        console.log(`✅ Found ${matchingFeatures.length} features for initiative ${item.id}`);
+        return matchingFeatures;
+        
       case 'feature':
-        return allWorkItems.filter(e => 
+        const matchingEpics = allWorkItems.filter(e => 
           e.type === 'epic' && (
             (e as any).featureId === item.id || 
             ((e as any).businessBriefId === (item as any).businessBriefId && !(e as any).featureId)
           )
         );
+        console.log(`✅ Found ${matchingEpics.length} epics for feature ${item.id}`);
+        return matchingEpics;
+        
       case 'epic':
-        return allWorkItems.filter(s => 
+        const matchingStories = allWorkItems.filter(s => 
           s.type === 'story' && (
             (s as any).epicId === item.id || 
             ((s as any).businessBriefId === (item as any).businessBriefId && !(s as any).epicId)
           )
         );
+        console.log(`✅ Found ${matchingStories.length} stories for epic ${item.id}`);
+        return matchingStories;
+        
       default:
         return [];
     }
   };
 
   // Render a work item row (hierarchical)
-  const renderWorkItem = (item: any, type: string, level: number = 0) => {
+  const renderWorkItem = (item: any, type: string, level: number = 0, parentId?: string) => {
     const childItems = getChildItems(item, type);
     const isExpanded = expandedItems.has(item.id);
     const hasChildren = childItems.length > 0;
     const isSelected = selectedWorkItemForDesign === item.id;
     const hasSavedDesign = savedDesigns[item.id];
 
+    // Simple but unique key now that duplicates are prevented at source
+    const uniqueKey = `${type}-${item.id}-L${level}-P${parentId || 'root'}`;
+
     return (
-      <React.Fragment key={`${type}-${item.id}`}>
+      <React.Fragment key={uniqueKey}>
         {/* Main row */}
         <div
           className={`group flex items-center px-2 py-2 hover:bg-gray-50 border-b border-gray-100 cursor-pointer ${
@@ -1462,7 +1553,8 @@ ${generatedCode.html}`;
                 type === 'initiative' ? 'feature' : 
                 type === 'feature' ? 'epic' : 
                 type === 'epic' ? 'story' : 'unknown',
-                level + 1
+                level + 1,
+                item.id // Pass parent ID for unique keys
               )
             )}
           </>
@@ -1584,7 +1676,7 @@ ${generatedCode.html}`;
                                 <ChevronRight size={14} className="text-gray-600" />
                               )}
                             </button>
-                            {getTypeIcon('portfolio')}
+                            {getTypeIcon('portfolio', portfolioGroup.portfolio?.color)}
                             <div className="flex-1">
                               <div className="font-semibold text-sm">
                                 {portfolioGroup.portfolio?.name || 'Unassigned Portfolio'}
@@ -1628,7 +1720,7 @@ ${generatedCode.html}`;
                                 {/* Initiatives */}
                                 {expandedItems.has(`brief-${businessBriefId}`) &&
                                   businessBriefGroup.initiatives.map((initiative: any) =>
-                                    renderWorkItem(initiative, 'initiative', 1)
+                                    renderWorkItem(initiative, 'initiative', 1, businessBriefId)
                                   )}
                               </React.Fragment>
                             ))}

@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 export interface Initiative {
   id: string;
   businessBriefId: string; // Links back to the business brief
+  portfolioId?: string; // Links to the portfolio
   title: string;
   description: string;
   category: string;
@@ -27,6 +28,7 @@ interface InitiativeState {
   deleteInitiative: (id: string) => void;
   getInitiativesByBusinessBrief: (businessBriefId: string) => Initiative[];
   getInitiativeById: (id: string) => Initiative | undefined;
+  clearInitiatives: () => void; // Add clear method
 }
 
 export const useInitiativeStore = create<InitiativeState>()(
@@ -143,6 +145,11 @@ export const useInitiativeStore = create<InitiativeState>()(
       getInitiativeById: (id) => {
         const state = get();
         return state.initiatives.find((initiative) => initiative.id === id);
+      },
+
+      clearInitiatives: () => {
+        console.log('🗑️ Clearing all initiatives from store');
+        set({ initiatives: [] });
       },
     }),
     {
