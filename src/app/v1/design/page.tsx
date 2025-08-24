@@ -450,32 +450,64 @@ export default function DesignPage() {
     if (typeof window !== 'undefined') {
       const storedWorkItem = sessionStorage.getItem('selectedWorkItem');
       const storedTab = sessionStorage.getItem('selectedWorkItemTab');
+      const autoAdvance = sessionStorage.getItem('designAutoAdvance');
       
-      console.log('🔍 V1 Design - storedWorkItem:', storedWorkItem);
-      console.log('🔍 V1 Design - storedTab:', storedTab);
+      console.log('🔍 Design Page - Checking session storage:', {
+        hasWorkItem: !!storedWorkItem,
+        tab: storedTab,
+        autoAdvance: autoAdvance
+      });
       
       if (storedWorkItem) {
         try {
           const workItemData = JSON.parse(storedWorkItem);
-          console.log('🔍 V1 Design - workItemData:', workItemData);
-          // Create a work item ID that matches the mock data structure
+          console.log('📦 Design Page - Received work item data:', {
+            title: workItemData.title,
+            type: workItemData.type,
+            id: workItemData.id
+          });
+          
+          // Set the work item for the generation process
           setSelectedWorkItem(workItemData.id);
-          console.log('🔍 V1 Design - setting selectedWorkItem to:', workItemData.id);
           
           // Set the tab to work-item if it was set from the Work Items table
           if (storedTab === 'work-item') {
-            console.log('🔍 V1 Design - switching to work-item tab');
+            console.log('🔄 Switching to work-item input source');
             setSelectedTab('work-item');
+            
+            // 🚀 AUTO-ADVANCE: Automatically go to config stage when coming from Work Items
+            if (autoAdvance === 'true') {
+              console.log('🚀 AUTO-ADVANCE ACTIVATED');
+              console.log(`✨ Jumping directly to design configuration for: "${workItemData.title}"`);
+              
+              setSelectedWorkItemForDesign(workItemData.id);
+              setWorkflowStage('config');
+              
+              // Auto-populate the design prompt with rich context
+              const contextParts = [
+                `"${workItemData.title}"`,
+                workItemData.description ? `Description: ${workItemData.description}` : '',
+                workItemData.priority ? `Priority: ${workItemData.priority}` : '',
+                workItemData.type ? `Type: ${workItemData.type}` : ''
+              ].filter(Boolean);
+              
+              const autoPrompt = `Create a modern, responsive UI component for ${contextParts.join('. ')}.`;
+              setDesignPrompt(autoPrompt);
+              
+              console.log('🎯 Design prompt auto-generated:', autoPrompt);
+            }
           }
           
           // Clear the session storage after using it
           sessionStorage.removeItem('selectedWorkItem');
           sessionStorage.removeItem('selectedWorkItemTab');
+          sessionStorage.removeItem('designAutoAdvance');
+          
         } catch (error) {
-          console.error('Failed to parse stored work item data:', error);
+          console.error('❌ Failed to parse stored work item data:', error);
         }
       } else {
-        console.log('🔍 V1 Design - No stored work item found');
+        console.log('🔍 Design Page - No stored work item found, starting fresh');
       }
     }
   }, []);
@@ -1746,10 +1778,11 @@ ${generatedCode.html}`;
                                           </Button>
                                       </div>
                                       
-                  {/* Compact Selected Work Item Display */}
+                  {/* Enhanced Selected Work Item Display */}
                   {selectedWorkItemForDesign && (
                           <div className="bg-blue-50 px-3 py-2 rounded border border-blue-200">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-xs">
                           {allWorkItems.find(item => item.id === selectedWorkItemForDesign)?.type}
                         </Badge>
@@ -1757,6 +1790,12 @@ ${generatedCode.html}`;
                           {allWorkItems.find(item => item.id === selectedWorkItemForDesign)?.title}
                                 </span>
                               </div>
+                              {/* Auto-selection indicator */}
+                              <Badge variant="secondary" className="text-xs bg-green-100 text-green-800 border-green-300">
+                                <span className="mr-1">🚀</span>
+                                Auto-selected from Work Items
+                              </Badge>
+                            </div>
                           </div>
                         )}
                         

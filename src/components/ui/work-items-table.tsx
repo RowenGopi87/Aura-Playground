@@ -252,21 +252,25 @@ export function WorkItemsTable({
       description: item.description,
       type: type,
       priority: item.priority,
-      status: item.status
+      status: item.status,
+      businessBriefId: (item as any).businessBriefId, // Include business brief context
+      portfolioId: (item as any).portfolioId, // Include portfolio context
     };
     
-    console.log('🚀 Work Items - Design button clicked for:', workItemData);
+    console.log('🚀 Work Items → Design - Auto-navigation initiated for:', {
+      title: workItemData.title,
+      type: workItemData.type,
+      id: workItemData.id
+    });
     
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('selectedWorkItem', JSON.stringify(workItemData));
       sessionStorage.setItem('selectedWorkItemTab', 'work-item');
-      console.log('🚀 Work Items - Set sessionStorage:', {
-        selectedWorkItem: JSON.stringify(workItemData),
-        selectedWorkItemTab: 'work-item'
-      });
+      sessionStorage.setItem('designAutoAdvance', 'true'); // Flag for auto-advance
+      console.log('📦 Session data stored - Design will auto-advance to config stage');
     }
     
-    console.log('🚀 Work Items - Navigating to /v1/design');
+    console.log('🚀 Navigating to Design Configuration...');
     router.push('/v1/design');
   };
 
@@ -373,7 +377,7 @@ export function WorkItemsTable({
             e.stopPropagation(); 
             handleDesignNavigation(item, type);
           }}
-          title="Navigate to Design with this work item selected"
+          title="🚀 Go to Design Configuration - Auto-selects this work item for design generation"
         >
           <Palette size={10} />
           <span>Design</span>
