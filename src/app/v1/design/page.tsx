@@ -1331,6 +1331,28 @@ ${generatedCode.html}`;
     }
   };
 
+  const handleCodeDesign = () => {
+    if (generatedCode && selectedWorkItemForDesign) {
+      // First save the design
+      setSavedDesigns(prev => ({
+        ...prev,
+        [selectedWorkItemForDesign]: generatedCode
+      }));
+      
+      // Store the design context in session storage for the code tab
+      sessionStorage.setItem('designContext', JSON.stringify({
+        workItemId: selectedWorkItemForDesign,
+        generatedDesign: generatedCode,
+        designSaved: true
+      }));
+      
+      // Navigate to the code tab
+      window.location.href = '/v1/code';
+    } else {
+      notify.error('Code Design', 'Please generate a design first before proceeding to code generation.');
+    }
+  };
+
   const handleViewSavedDesign = (workItemId: string) => {
     const savedDesign = savedDesigns[workItemId];
     if (savedDesign) {
@@ -1944,6 +1966,13 @@ ${generatedCode.html}`;
                       <Button onClick={handleSaveDesign}>
                         <Save className="w-4 h-4 mr-2" />
                         Save Design
+                      </Button>
+                      <Button 
+                        onClick={handleCodeDesign}
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <Code2 className="w-4 h-4 mr-2" />
+                        Code Design
                       </Button>
                     </div>
                   </div>

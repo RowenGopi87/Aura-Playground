@@ -51,15 +51,7 @@ import {
   Link as LinkIcon,
   Layers,
   Target,
-  ArrowLeft,
-  BookOpen,
-  Building2,
-  ChevronDown,
-  ChevronRight,
-  Save,
-  Settings,
-  Palette,
-  FileImage,
+
 } from 'lucide-react';
 import { Code } from 'lucide-react';
 import Link from "next/link";
@@ -127,25 +119,12 @@ export default function CodePage() {
   const { addFeature, features } = useFeatureStore();
   const { addEpic, epics } = useEpicStore();
   const { addStory, stories } = useStoryStore();
-  const { addUseCase, useCases: businessBriefs } = useUseCaseStore();
-
-  // Portfolio state (like V1 Design)
-  const [portfolios, setPortfolios] = useState<any[]>([]);
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const { addUseCase } = useUseCaseStore();
 
   const [selectedWorkItem, setSelectedWorkItem] = useState<string>('');
   const [codeType, setCodeType] = useState<CodeType>('frontend');
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('none');
-  const [framework, setFramework] = useState<string>('vanilla');
-  
-  // New workflow state (like V1 Design)
-  const [workflowStage, setWorkflowStage] = useState<'table' | 'config' | 'generated'>('table');
-  const [selectedTab, setSelectedTab] = useState<'work-item' | 'figma'>('work-item');
-  const [selectedWorkItemForCode, setSelectedWorkItemForCode] = useState<string>('');
-  
-  // Figma & Images state
-  const [figmaUrl, setFigmaUrl] = useState<string>('');
-  const [designImage, setDesignImage] = useState<File | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('auto');
+  const [framework, setFramework] = useState<string>('auto');
   const [designReference, setDesignReference] = useState<string>('');
   const [designFile, setDesignFile] = useState<File | null>(null);
   const [additionalRequirements, setAdditionalRequirements] = useState('');
@@ -184,26 +163,6 @@ export default function CodePage() {
         }
       }
     }
-  }, []);
-
-  // Load portfolios from database (like V1 Design)
-  const loadPortfolios = async () => {
-    try {
-      console.log('📊 Loading portfolios...');
-      const response = await fetch('/api/portfolios');
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        setPortfolios(data.data);
-        console.log(`✅ Loaded ${data.data.length} portfolios`);
-      }
-    } catch (error) {
-      console.error('❌ Failed to load portfolios:', error);
-    }
-  };
-
-  useEffect(() => {
-    loadPortfolios();
   }, []);
 
   // Combine all work items from stores
@@ -275,207 +234,6 @@ export default function CodePage() {
       status: item.status
     }));
   }, [initiatives, features, epics, stories]);
-
-  // Group work items by portfolio and business brief (like V1 Design)
-  const groupedData = React.useMemo(() => {
-    const portfolioMap = new Map(portfolios.map(p => [p.id, p]));
-    const businessBriefMap = new Map(businessBriefs.map(bb => [bb.id, bb]));
-    
-    const byPortfolio: Record<string, any> = {};
-
-    allWorkItems.filter(item => item.type === 'initiative').forEach(initiative => {
-      const portfolioId = (initiative as any).portfolioId && (initiative as any).portfolioId.trim() !== '' ? (initiative as any).portfolioId : 'unassigned';
-      const businessBriefId = (initiative as any).businessBriefId || 'unassigned';
-
-      if (!byPortfolio[portfolioId]) {
-        byPortfolio[portfolioId] = {
-          portfolio: portfolioMap.get(portfolioId) || null,
-          businessBriefs: {}
-        };
-      }
-
-      if (!byPortfolio[portfolioId].businessBriefs[businessBriefId]) {
-        byPortfolio[portfolioId].businessBriefs[businessBriefId] = {
-          businessBrief: businessBriefMap.get(businessBriefId) || null,
-          initiatives: []
-        };
-      }
-
-      byPortfolio[portfolioId].businessBriefs[businessBriefId].initiatives.push(initiative);
-    });
-
-    return byPortfolio;
-  }, [allWorkItems, portfolios, businessBriefs]);
-
-  // Helper functions for icons and styling (like V1 Design)
-  const getTypeIcon = (type: string, color?: string) => {
-    const iconProps = { size: 16, style: color ? { color } : {} };
-    const smallIconProps = { size: 14, style: color ? { color } : {} };
-    
-    switch (type) {
-      case 'portfolio': 
-        return <Building2 {...smallIconProps} className={!color ? "text-purple-600" : ""} />;
-      case 'brief': 
-        return <BookOpen size={12} className="text-amber-600" />;
-      case 'initiative': 
-        return <Target {...iconProps} className={!color ? "text-yellow-600" : ""} />;
-      case 'feature': 
-        return <Layers {...iconProps} className={!color ? "text-blue-600" : ""} />;
-      case 'epic': 
-        return <Package {...iconProps} className={!color ? "text-purple-600" : ""} />;
-      case 'story': 
-        return <FileText {...iconProps} className={!color ? "text-green-600" : ""} />;
-      default: 
-        return <FileText {...iconProps} className="text-gray-600" />;
-    }
-  };
-
-  const toggleExpanded = (itemId: string) => {
-    const newExpanded = new Set(expandedItems);
-    if (newExpanded.has(itemId)) {
-      newExpanded.delete(itemId);
-    } else {
-      newExpanded.add(itemId);
-    }
-    setExpandedItems(newExpanded);
-  };
-
-  // Workflow handlers (like V1 Design)
-  const handleWorkItemSelect = (workItemId: string) => {
-    setSelectedWorkItemForCode(workItemId);
-    setWorkflowStage('config');
-  };
-
-  const handleBackToTable = () => {
-    setWorkflowStage('table');
-    setSelectedWorkItemForCode('');
-    setGeneratedCode(null);
-  };
-
-  // Get child items for hierarchical display (like V1 Design)
-  const getChildItems = (item: any, type: string) => {
-    switch (type) {
-      case 'initiative':
-        return allWorkItems.filter(f => 
-          f.type === 'feature' && (
-            (f as any).initiativeId === item.id || 
-            ((f as any).businessBriefId === (item as any).businessBriefId && !(f as any).initiativeId)
-          )
-        );
-      case 'feature':
-        return allWorkItems.filter(e => 
-          e.type === 'epic' && (
-            (e as any).featureId === item.id || 
-            ((e as any).businessBriefId === (item as any).businessBriefId && !(e as any).featureId)
-          )
-        );
-      case 'epic':
-        return allWorkItems.filter(s => 
-          s.type === 'story' && (
-            (s as any).epicId === item.id || 
-            ((s as any).businessBriefId === (item as any).businessBriefId && !(s as any).epicId)
-          )
-        );
-      default:
-        return [];
-    }
-  };
-
-  // Render work item hierarchy (like V1 Design)
-  const renderWorkItem = (item: any, type: string, level: number = 0) => {
-    const childItems = getChildItems(item, type);
-    const isExpanded = expandedItems.has(item.id);
-    const hasChildren = childItems.length > 0;
-    const paddingClass = level === 0 ? 'px-9' : level === 1 ? 'px-12' : level === 2 ? 'px-9' : 'px-12';
-
-    return (
-      <React.Fragment key={item.id}>
-        <div className={`group flex items-center gap-2 ${paddingClass} py-2 hover:bg-gray-50 border-b border-gray-100 cursor-pointer`}>
-          {/* Expand/Collapse Button */}
-          <button 
-            className="w-4 h-4 flex items-center justify-center"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (hasChildren) {
-                toggleExpanded(item.id);
-              } else {
-                handleWorkItemSelect(item.id);
-              }
-            }}
-          >
-            {hasChildren ? (
-              isExpanded ? (
-                <ChevronDown size={12} className="text-gray-500" />
-              ) : (
-                <ChevronRight size={12} className="text-gray-500" />
-              )
-            ) : (
-              <div className="w-3" />
-            )}
-          </button>
-
-          {/* Icon & Type */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            {getTypeIcon(type)}
-            <div className="flex flex-col min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-sm text-gray-900 truncate" title={item.title}>
-                  {item.title}
-                </span>
-                <Badge variant="outline" className="text-xs">
-                  {type}
-                </Badge>
-                {hasChildren && (
-                  <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700">
-                    {childItems.length}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Priority */}
-          <div className="w-20 flex justify-center">
-            <Badge variant="outline" className="text-xs">
-              {item.priority}
-            </Badge>
-          </div>
-
-          {/* Status */}
-          <div className="w-20 flex justify-center">
-            <Badge variant="outline" className="text-xs">
-              {item.status}
-            </Badge>
-          </div>
-
-          {/* Action */}
-          <div className="w-24 flex justify-center">
-            {!hasChildren && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleWorkItemSelect(item.id);
-                }}
-                className="text-xs px-2 py-1 h-6"
-              >
-                <Code2 size={10} className="mr-1" />
-                Code
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Child Items */}
-        {isExpanded && hasChildren && (
-          <>
-            {childItems.map(child => renderWorkItem(child, child.type, level + 1))}
-          </>
-        )}
-      </React.Fragment>
-    );
-  };
 
   // Reverse Engineering State
   const [showReverseEngineer, setShowReverseEngineer] = useState(false);
@@ -620,14 +378,7 @@ export default function CodePage() {
   };
   
   const generateCode = async () => {
-    // Check if we have either a work item selected OR figma/image content
-    if (!selectedWorkItemForCode && selectedTab === 'work-item') {
-      notify.error('Code Generation', 'Please select a work item first.');
-      return;
-    }
-    
-    if (selectedTab === 'figma' && !figmaUrl && !designFile) {
-      notify.error('Code Generation', 'Please provide a Figma URL or upload a design image.');
+    if (!selectedWorkItem) {
       return;
     }
 
@@ -650,14 +401,8 @@ export default function CodePage() {
         });
       }, 300);
 
-      let workItem = null;
-      if (selectedTab === 'work-item' && selectedWorkItemForCode) {
-        workItem = allWorkItems.find(item => item.id === selectedWorkItemForCode);
-        if (!workItem) {
-          notify.error('Code Generation', 'Selected work item not found.');
-          return;
-        }
-      }
+      const workItem = allWorkItems.find(item => item.id === selectedWorkItem);
+      if (!workItem) return;
 
       // Prepare image data if file is uploaded
       let imageData = '';
@@ -668,23 +413,14 @@ export default function CodePage() {
       }
 
       // Prepare the request payload
-      let prompt = '';
-      let context = '';
-
-      if (selectedTab === 'figma') {
-        if (designFile) {
-          context = `Design file: ${designFile.name}`;
-          prompt = `Generate ${codeType} code based on the uploaded design image. ${additionalRequirements || 'Create a clean, professional implementation with proper styling and interactions.'}`;
-        } else if (figmaUrl) {
-          context = `Figma URL: ${figmaUrl}`;
-          prompt = `Generate ${codeType} code based on the Figma design at the provided URL. ${additionalRequirements || 'Create a clean, professional implementation with proper styling and interactions.'}`;
-        }
-      } else if (workItem) {
-        context = `Work Item: ${workItem.title}`;
-        prompt = `Generate ${codeType} code for the following work item:
+      const prompt = `Generate ${codeType} code for the following work item:
 
 Title: ${workItem.title}
 Description: ${workItem.description}
+
+Code Type: ${codeType}
+Language: ${selectedLanguage === 'auto' ? 'Best choice for this project' : selectedLanguage}
+Framework: ${framework === 'auto' ? 'Best choice for this project' : framework}
 
 ${designReference ? `Design Reference: ${designReference}` : ''}
 ${designFile ? 'Design file has been attached for visual reference.' : ''}
@@ -699,22 +435,13 @@ Please provide:
 5. Multiple files if needed (main, components, configs, tests)
 
 Make sure the code is well-structured, follows best practices, and includes proper error handling.`;
-      }
-
-      prompt += `
-
-Code Type: ${codeType}
-Language: ${selectedLanguage === 'none' ? 'Best choice for this project' : selectedLanguage}
-Framework: ${framework === 'none' ? 'Best choice for this project' : framework}`;
 
       console.log('[CODE] Calling API with payload:', {
-        workItemId: selectedWorkItemForCode,
-        selectedTab,
+        workItemId: selectedWorkItem,
         codeType,
         language: selectedLanguage,
         framework,
-        hasImage: !!imageData,
-        hasFigmaUrl: !!figmaUrl
+        hasImage: !!imageData
       });
 
       // Call the API
@@ -725,17 +452,14 @@ Framework: ${framework === 'none' ? 'Best choice for this project' : framework}`
         },
         body: JSON.stringify({
           prompt,
-          context,
-          workItemId: selectedTab === 'work-item' ? selectedWorkItemForCode : null,
+          workItemId: selectedWorkItem,
           codeType,
           language: selectedLanguage,
           framework,
           designReference: designFile ? 'Image file attached' : designReference,
           additionalRequirements,
           imageData,
-          imageType,
-          figmaUrl: selectedTab === 'figma' ? figmaUrl : null,
-          selectedTab
+          imageType
         }),
       });
 
@@ -765,11 +489,6 @@ Framework: ${framework === 'none' ? 'Best choice for this project' : framework}`
         setGeneratedCode(result.data);
         setSelectedFile(result.data.files?.[0]?.filename || '');
         
-        // If we're in work-item workflow, transition to generated stage
-        if (selectedTab === 'work-item' && selectedWorkItemForCode) {
-          setWorkflowStage('generated');
-        }
-        
         // Update preview if frontend code OR if it's single HTML
         const shouldUpdatePreview = (
           (codeType === 'frontend' || codeType === 'fullstack') ||
@@ -798,20 +517,17 @@ Framework: ${framework === 'none' ? 'Best choice for this project' : framework}`
       }
       
       // Continue with fallback...
-      let fallbackWorkItem = null;
-      if (selectedTab === 'work-item' && selectedWorkItemForCode) {
-        fallbackWorkItem = allWorkItems.find(item => item.id === selectedWorkItemForCode);
-      }
+      const workItem = allWorkItems.find(item => item.id === selectedWorkItem);
       
       // Special handling for single HTML file
-      if (selectedLanguage === 'html-single' || framework === 'vanilla') {
+      if (selectedLanguage === 'html-single') {
         const mockGeneratedCode: GeneratedCode = {
           language: 'html',
           codeType,
           files: [
             {
               filename: 'index.html',
-              content: generateSingleHTMLFile(fallbackWorkItem),
+              content: generateSingleHTMLFile(workItem),
               type: 'main',
               language: 'html',
             }
@@ -823,38 +539,33 @@ Framework: ${framework === 'none' ? 'Best choice for this project' : framework}`
         
         setGeneratedCode(mockGeneratedCode);
         setSelectedFile('index.html');
-        
-        // Transition to generated stage for work items
-        if (selectedTab === 'work-item' && selectedWorkItemForCode) {
-          setWorkflowStage('generated');
-        }
         return;
       }
       
       const mockGeneratedCode: GeneratedCode = {
-        language: selectedLanguage === 'none' ? 'typescript' : selectedLanguage,
+        language: selectedLanguage === 'auto' ? 'typescript' : selectedLanguage,
         codeType,
         files: [
           {
             filename: codeType === 'backend' ? 'server.ts' : 'App.tsx',
             content: codeType === 'backend' 
-              ? generateBackendCode(fallbackWorkItem)
-              : generateFrontendCode(fallbackWorkItem),
+              ? generateBackendCode(workItem)
+              : generateFrontendCode(workItem),
             type: 'main',
-            language: selectedLanguage === 'none' ? 'typescript' : selectedLanguage,
+            language: selectedLanguage === 'auto' ? 'typescript' : selectedLanguage,
           },
           ...(codeType === 'frontend' || codeType === 'fullstack' ? [{
             filename: 'App.css',
-            content: generateModernCSS(fallbackWorkItem),
+            content: generateModernCSS(workItem),
             type: 'style' as const,
             language: 'css',
           }] : []),
           {
             filename: 'package.json',
             content: JSON.stringify({
-              name: fallbackWorkItem?.title.toLowerCase().replace(/\s+/g, '-') || 'generated-app',
+              name: workItem?.title.toLowerCase().replace(/\s+/g, '-'),
               version: '1.0.0',
-              description: fallbackWorkItem?.description || 'Generated application',
+              description: workItem?.description,
               scripts: codeType === 'backend' ? {
                 start: 'node dist/server.js',
                 dev: 'ts-node server.ts',
@@ -893,11 +604,6 @@ Framework: ${framework === 'none' ? 'Best choice for this project' : framework}`
       
       setGeneratedCode(mockGeneratedCode);
       setSelectedFile(mockGeneratedCode.files[0].filename);
-      
-      // Transition to generated stage for work items
-      if (selectedTab === 'work-item' && selectedWorkItemForCode) {
-        setWorkflowStage('generated');
-      }
       
       // Update preview for frontend code
       if (codeType === 'frontend' || codeType === 'fullstack') {
@@ -2160,8 +1866,8 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Code Repository</h1>
-          <p className="text-gray-600 text-sm">Generate production-ready code from work items using AI</p>
+          <h1 className="text-3xl font-bold text-gray-900">Code Repository</h1>
+          <p className="text-gray-600 mt-2">Generate production-ready code from work items using AI</p>
         </div>
         <div className="flex items-center space-x-2">
           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
@@ -2173,7 +1879,7 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
 
       {/* Main Tab Navigation */}
       <Tabs defaultValue="code-generation" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-4">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="code-generation" className="flex items-center">
             <Code2 className="w-4 h-4 mr-2" />
             Code Generation
@@ -2185,189 +1891,63 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
         </TabsList>
 
         {/* Code Generation Tab */}
-        <TabsContent value="code-generation" className="mt-0">
-          {/* Input Source Selection - Same as Design tab */}
-          <div className="mb-4">
-            <div className="flex items-center gap-4">
-              <span className="text-sm font-medium text-gray-700">Input Source:</span>
-              <div className="flex gap-2">
-                <Button
-                  variant={selectedTab === 'work-item' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setSelectedTab('work-item');
-                    setDesignImage(null);
-                    setFigmaUrl('');
-                    setWorkflowStage('table');
-                    setSelectedWorkItemForCode('');
-                  }}
-                  className="flex items-center gap-2 px-3 py-2"
-                >
-                  <FileText className="w-4 h-4" />
-                  <span className="text-sm">Work Items</span>
-                </Button>
-                <Button
-                  variant={selectedTab === 'figma' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setSelectedTab('figma');
-                    setWorkflowStage('config');
-                    setSelectedWorkItemForCode('');
-                  }}
-                  className="flex items-center gap-2 px-3 py-2"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span className="text-sm">Figma & Images</span>
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Work Items Tab Content */}
-          {selectedTab === 'work-item' && (
-            <>
-              {workflowStage === 'table' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Target size={18} />
-                      <h3 className="text-lg font-semibold text-gray-900">Work Items Hierarchy</h3>
-                    </div>
-                    <p className="text-sm text-gray-600">Select a work item to generate code</p>
-                  </div>
-                  
-                  {/* Hierarchical Table - Exact V1 Design Style */}
+        <TabsContent value="code-generation" className="mt-6">
+          <div className={`grid gap-6 ${isFullscreen ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
+            {/* Code Configuration Section */}
+            {!isFullscreen && (
+              <div className="space-y-6">
                 <Card>
-                    <CardContent className="p-0">
-                      {/* Table Header */}
-                      <div className="flex items-center px-2 py-2 bg-gray-50 border-b border-gray-200 text-sm font-medium text-gray-700 sticky top-0 z-10">
-                        <div className="w-6"></div> {/* Expand column */}
-                        <div className="flex-1 min-w-0">Work Item</div>
-                        <div className="w-20 text-center">Priority</div>
-                        <div className="w-20 text-center">Status</div>
-                        <div className="w-24 text-center">Code</div>
-                      </div>
-
-                      {/* Table Body */}
-                      <div className="max-h-[500px] overflow-y-auto">
-                      {Object.entries(groupedData).map(([portfolioId, portfolioGroup]) => (
-                        <React.Fragment key={portfolioId}>
-                          {/* Portfolio Header */}
-                          <div 
-                            className="flex items-center gap-3 px-3 py-3 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200 cursor-pointer"
-                            onClick={() => toggleExpanded(`portfolio-${portfolioId}`)}
-                          >
-                            <button>
-                              {expandedItems.has(`portfolio-${portfolioId}`) ? (
-                                <ChevronDown size={14} className="text-gray-600" />
-                              ) : (
-                                <ChevronRight size={14} className="text-gray-600" />
-                              )}
-                            </button>
-                            {getTypeIcon('portfolio', portfolioGroup.portfolio?.color)}
-                            <div className="flex-1">
-                              <div className="font-semibold text-sm">
-                                {portfolioGroup.portfolio?.name || 'Unassigned Portfolio'}
-                              </div>
-                              <div className="text-xs text-gray-600">
-                                {portfolioGroup.portfolio?.description || 'Items not assigned to any portfolio'}
-                              </div>
-                            </div>
-                            <Badge variant="outline" className="text-xs">
-                              {Object.values(portfolioGroup.businessBriefs).reduce((sum: number, bb: any) => sum + bb.initiatives.length, 0)} initiatives
-                            </Badge>
-                          </div>
-                            
-                          {/* Business Briefs & Initiatives */}
-                          {expandedItems.has(`portfolio-${portfolioId}`) && 
-                            Object.entries(portfolioGroup.businessBriefs).map(([businessBriefId, businessBriefGroup]: [string, any]) => (
-                              <React.Fragment key={businessBriefId}>
-                                {/* Business Brief Header */}
-                                <div 
-                                  className="flex items-center gap-3 px-6 py-2 bg-amber-50 border-b border-gray-100 cursor-pointer"
-                                  onClick={() => toggleExpanded(`brief-${businessBriefId}`)}
-                                >
-                                  <button>
-                                    {expandedItems.has(`brief-${businessBriefId}`) ? (
-                                      <ChevronDown size={12} className="text-gray-500" />
-                                    ) : (
-                                      <ChevronRight size={12} className="text-gray-500" />
-                                    )}
-                                  </button>
-                                  {getTypeIcon('brief')}
-                                  <div className="flex-1">
-                                    <div className="font-medium text-sm">
-                                      {businessBriefGroup.businessBrief?.title || `Business Brief ${businessBriefId}`}
-                                    </div>
-                                  </div>
-                                  <Badge variant="outline" className="text-xs">
-                                    {businessBriefGroup.initiatives.length} initiatives
-                                  </Badge>
-                                </div>
-
-                                {/* Initiatives under this Business Brief */}
-                                {expandedItems.has(`brief-${businessBriefId}`) && 
-                                  businessBriefGroup.initiatives.map((initiative: any) => (
-                                    <React.Fragment key={initiative.id}>
-                                      {renderWorkItem(initiative, 'initiative', 2)}
-                                    </React.Fragment>
-                                  ))
-                                }
-                              </React.Fragment>
-                            ))
-                          }
-                        </React.Fragment>
-                      ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {workflowStage === 'config' && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <GitBranch className="w-5 h-5 mr-2" />
+                      Code Configuration
+                    </CardTitle>
+                    <CardDescription>
+                      Configure your code generation settings and work item selection
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {/* Work Item Selection */}
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Code Configuration</h3>
-                      <p className="text-sm text-gray-600">Configure code generation for selected work item</p>
-                    </div>
-                    <Button variant="outline" onClick={handleBackToTable}>
-                      <ArrowLeft className="w-4 h-4 mr-2" />
-                      Back to Work Items
-                    </Button>
-                  </div>
-                  
-                  {/* Selected Work Item Display */}
-                  {selectedWorkItemForCode && (
-                    <div className="bg-blue-50 px-3 py-2 rounded border border-blue-200">
-                      <div className="flex items-center justify-between">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Select Work Item
+                      </label>
+                      <Select value={selectedWorkItem} onValueChange={setSelectedWorkItem}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose a work item to implement" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allWorkItems.map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
                               <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {allWorkItems.find(item => item.id === selectedWorkItemForCode)?.type}
+                                <Badge variant="outline" className="text-xs px-1 py-0.5 shrink-0">
+                                  {item.type}
                                 </Badge>
-                          <span className="font-medium text-blue-900 text-sm">
-                            {allWorkItems.find(item => item.id === selectedWorkItemForCode)?.title}
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{item.title}</span>
+                                  <span className="text-xs text-gray-500 truncate">
+                                    {item.description.substring(0, 60)}...
                                   </span>
                                 </div>
                               </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      
+                      {selectedWorkItemData && (
+                        <div className="mt-3 bg-blue-50 p-4 rounded-lg">
+                          <h4 className="font-medium text-blue-900">Selected Work Item</h4>
+                          <p className="text-sm text-blue-700 mt-1">
+                            {selectedWorkItemData.description}
+                          </p>
                         </div>
                       )}
-                  
-                  {/* Single Code Configuration Card */}
-                  <Card className="shadow-lg border-0 bg-gradient-to-br from-white to-gray-50">
-                    <CardHeader>
-                      <CardTitle className="flex items-center">
-                        <Settings className="w-5 h-5 mr-2" />
-                        Code Configuration
-                      </CardTitle>
-                      <CardDescription>
-                        Configure code generation settings and requirements
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
+                    </div>
+
                     {/* Code Type Selection */}
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-3">
                         Code Type
                       </label>
                       <div className="grid grid-cols-3 gap-3">
@@ -2377,7 +1957,7 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                           onClick={() => setCodeType('frontend')}
                           className="flex flex-col items-center p-4 h-auto"
                         >
-                            <Monitor className="w-5 h-5 mb-1" />
+                          <Globe className="w-5 h-5 mb-1" />
                           <span className="text-xs">Frontend</span>
                         </Button>
                         <Button
@@ -2395,107 +1975,136 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                           onClick={() => setCodeType('fullstack')}
                           className="flex flex-col items-center p-4 h-auto"
                         >
-                            <Globe className="w-5 h-5 mb-1" />
+                          <Database className="w-5 h-5 mb-1" />
                           <span className="text-xs">Full Stack</span>
                         </Button>
                       </div>
                     </div>
 
-                      {/* Programming Language & Framework */}
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-gray-700">Programming Language</label>
+                    {/* Language Selection */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Programming Language
+                        </label>
                         <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
-                            <SelectTrigger className="w-full">
+                          <SelectTrigger>
                             <SelectValue placeholder="Select language" />
                           </SelectTrigger>
                           <SelectContent>
-                              <SelectItem value="none">None</SelectItem>
-                              <SelectItem value="javascript">JavaScript</SelectItem>
-                              <SelectItem value="typescript">TypeScript</SelectItem>
-                              <SelectItem value="python">Python</SelectItem>
-                              <SelectItem value="java">Java</SelectItem>
-                              <SelectItem value="csharp">C#</SelectItem>
-                              <SelectItem value="php">PHP</SelectItem>
+                            {languageOptions.map((lang) => (
+                              <SelectItem key={lang.value} value={lang.value}>
+                                <div className="flex items-center">
+                                  <lang.icon className="w-4 h-4 mr-2" />
+                                  {lang.label}
+                                </div>
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
 
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-gray-700">Framework</label>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Framework
+                        </label>
                         <Select value={framework} onValueChange={setFramework}>
-                            <SelectTrigger className="w-full">
+                          <SelectTrigger>
                             <SelectValue placeholder="Select framework" />
                           </SelectTrigger>
                           <SelectContent>
-                              <SelectItem value="none">None</SelectItem>
-                              <SelectItem value="vanilla">Vanilla HTML, CSS, JS - Single File</SelectItem>
-                              <SelectItem value="react">React</SelectItem>
-                              <SelectItem value="vue">Vue.js</SelectItem>
-                              <SelectItem value="angular">Angular</SelectItem>
-                              <SelectItem value="svelte">Svelte</SelectItem>
-                              <SelectItem value="next">Next.js</SelectItem>
-                              <SelectItem value="nuxt">Nuxt.js</SelectItem>
+                            <SelectItem value="auto">Auto Select</SelectItem>
+                            {getFrameworkOptions(selectedLanguage, codeType).map((fw) => (
+                              <SelectItem key={fw} value={fw.toLowerCase()}>
+                                {fw}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
                     </div>
 
-                      {/* Design Reference Upload & Requirements - Side by Side */}
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Design Reference Upload */}
+                    {/* Design Reference with File Upload */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                            💻 Upload Design Reference
+                        Design Reference
                       </label>
-                          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-gray-400 transition-colors">
-                            {designFile ? (
-                              <div className="space-y-2">
-                                <Upload className="w-6 h-6 text-green-600 mx-auto" />
-                                <p className="text-xs font-medium text-green-700">{designFile.name}</p>
-                                <p className="text-xs text-green-600">Click to change</p>
+                      <div className="space-y-3">
+                        <Input
+                          placeholder="Enter design notes or requirements..."
+                          value={designReference}
+                          onChange={(e) => setDesignReference(e.target.value)}
+                        />
+                        
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleFileUpload}
+                            className="hidden"
+                            id="design-file-upload"
+                          />
+                          <label
+                            htmlFor="design-file-upload"
+                            className="cursor-pointer flex flex-col items-center space-y-2"
+                          >
+                            <Upload className="w-8 h-8 text-gray-400" />
+                            <div className="text-sm text-gray-600">
+                              <span className="font-medium text-blue-600 hover:text-blue-500">
+                                Upload design file
+                              </span>{' '}
+                              or drag and drop
                             </div>
-                            ) : (
-                              <div className="space-y-2">
-                                <Upload className="w-6 h-6 text-gray-400 mx-auto" />
-                                <p className="text-xs text-gray-600">Upload design reference</p>
-                                <p className="text-xs text-gray-400">PNG, JPG, SVG supported</p>
+                            <p className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</p>
+                          </label>
+                        </div>
+                        
+                        {designFile && (
+                          <div className="flex items-center space-x-2 bg-green-50 p-2 rounded border border-green-200">
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                            <span className="text-sm text-green-700 font-medium">
+                              {designFile.name}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setDesignFile(null);
+                                setDesignReference('');
+                                if (fileInputRef.current) {
+                                  fileInputRef.current.value = '';
+                                }
+                              }}
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </Button>
                           </div>
                         )}
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Upload design mockups or wireframes to provide visual context to the AI
+                      </p>
                     </div>
 
-                        {/* Design Requirements */}
+                    {/* Additional Requirements */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                            📝 Design Requirements
+                        Additional Requirements
                       </label>
                       <Textarea
-                            placeholder="Describe the design or UI requirements..."
-                            value={designReference}
-                            onChange={(e) => setDesignReference(e.target.value)}
-                            className="min-h-[100px] resize-none"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Additional Requirements */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Additional Requirements</label>
-                        <Textarea
-                          placeholder="Any specific requirements, features, or constraints..."
+                        placeholder="Specify any additional requirements, architecture preferences, or constraints..."
                         value={additionalRequirements}
                         onChange={(e) => setAdditionalRequirements(e.target.value)}
-                          className="min-h-20 resize-none"
+                        className="min-h-[80px]"
                       />
                     </div>
 
                     {/* Generate Button */}
-                      <div className="pt-4">
                     <Button
                       onClick={generateCode}
-                          disabled={isGenerating || !selectedWorkItemForCode}
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                      disabled={isGenerating || !selectedWorkItem}
+                      className="w-full"
                       size="lg"
                     >
                       {isGenerating ? (
@@ -2505,52 +2114,31 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                         </>
                       ) : (
                         <>
-                              <Code2 className="w-4 h-4 mr-2" />
-                              Generate & Publish Code
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          Generate Code with AI
                         </>
                       )}
                     </Button>
+                    
+                    {isGenerating && (
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
+                          <span>Analyzing requirements and generating code...</span>
+                          <span>{generationProgress}%</span>
                         </div>
+                        <Progress value={generationProgress} className="h-2" />
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
             )}
 
-              {workflowStage === 'generated' && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Generated Code</h3>
-                      <p className="text-sm text-gray-600">Your code has been generated successfully</p>
-                    </div>
-                    <Button variant="outline" onClick={handleBackToTable}>
-                      <ArrowLeft className="w-4 h-4 mr-2" />
-                      Back to Work Items
-                    </Button>
-                  </div>
-                  
-                  {/* Selected Work Item Display */}
-                  {selectedWorkItemForCode && (
-                    <div className="bg-green-50 px-3 py-2 rounded border border-green-200">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {allWorkItems.find(item => item.id === selectedWorkItemForCode)?.type}
-                          </Badge>
-                          <span className="font-medium text-green-900 text-sm">
-                            {allWorkItems.find(item => item.id === selectedWorkItemForCode)?.title}
-                          </span>
-                          <CheckCircle className="w-4 h-4 text-green-600" />
-                          <span className="text-xs text-green-700">Code Generated</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Code Display Card */}
-                  {generatedCode && (
-                    <Card className="shadow-lg border-0 bg-gradient-to-br from-white to-gray-50">
-                      <CardHeader>
+            {/* Code Output Section */}
+            <div className={`space-y-6 ${isFullscreen ? 'h-screen' : ''}`}>
+              {generatedCode ? (
+                <Card className={isFullscreen ? 'h-full flex flex-col' : ''}>
+                  <CardHeader className="flex-shrink-0">
                     <div className="flex items-center justify-between">
                       <CardTitle className="flex items-center">
                         <FileCode2 className="w-5 h-5 mr-2" />
@@ -2564,6 +2152,47 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                         >
                           <Download className="w-4 h-4 mr-1" />
                           Download
+                        </Button>
+                        {generatedCode && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={reviewCodeWithAI}
+                            disabled={isReviewing}
+                          >
+                            {isReviewing ? (
+                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            ) : (
+                              <Eye className="w-4 h-4 mr-1" />
+                            )}
+                            Review with AI
+                          </Button>
+                        )}
+                        {(codeType === 'frontend' || codeType === 'fullstack') && (
+                          <Button
+                            variant={previewMode === 'preview' ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setPreviewMode('preview')}
+                          >
+                            <Monitor className="w-4 h-4 mr-1" />
+                            Preview
+                          </Button>
+                        )}
+                        <Button
+                          variant={previewMode === 'code' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setPreviewMode('code')}
+                        >
+                          <Code2 className="w-4 h-4 mr-1" />
+                          Code
+                        </Button>
+                        <Button
+                          variant={previewMode === 'structure' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setPreviewMode('structure')}
+                        >
+                          <FolderTree className="w-4 h-4 mr-1" />
+                          Structure
                         </Button>
                         <Button
                           variant="outline"
@@ -2583,9 +2212,108 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                       Generated {generatedCode.language} {generatedCode.codeType} code ready for implementation
                     </CardDescription>
                   </CardHeader>
-                      <CardContent>
+                  <CardContent className={isFullscreen ? 'flex-1 flex flex-col' : ''}>
+                    {previewMode === 'preview' && (codeType === 'frontend' || codeType === 'fullstack') ? (
+                      <div className={`space-y-4 ${isFullscreen ? 'flex-1 flex flex-col' : ''}`}>
+                        {/* Viewport Controls */}
+                        <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-700">Viewport:</span>
+                            <Button
+                              variant={viewportType === 'desktop' ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => setViewportType('desktop')}
+                            >
+                              <Monitor className="w-4 h-4 mr-1" />
+                              Desktop
+                            </Button>
+                            <Button
+                              variant={viewportType === 'tablet' ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => setViewportType('tablet')}
+                            >
+                              <Tablet className="w-4 h-4 mr-1" />
+                              Tablet
+                            </Button>
+                            <Button
+                              variant={viewportType === 'mobile' ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => setViewportType('mobile')}
+                            >
+                              <Smartphone className="w-4 h-4 mr-1" />
+                              Mobile
+                            </Button>
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {viewportType === 'desktop' && 'Responsive'}
+                            {viewportType === 'tablet' && '768px'}
+                            {viewportType === 'mobile' && '375px'}
+                          </div>
+                        </div>
+                        
+                        {/* Preview Frame */}
+                        <div className={`border rounded-lg bg-gray-100 p-4 ${isFullscreen ? 'flex-1' : 'min-h-[400px]'} flex justify-center`}>
+                          <div
+                            className="bg-white rounded shadow-lg"
+                            style={{
+                              width: viewportDimensions[viewportType].width,
+                              height: isFullscreen ? '100%' : viewportDimensions[viewportType].height,
+                              maxWidth: '100%',
+                              transition: 'all 0.3s ease'
+                            }}
+                          >
+                            <iframe
+                              ref={previewRef}
+                              className="w-full h-full border-0 rounded"
+                              title="Code Preview"
+                              sandbox="allow-scripts allow-same-origin"
+                              srcDoc={previewSrcDoc}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ) : previewMode === 'structure' ? (
                       <div className="space-y-4">
-                          {/* File Tabs */}
+                        {/* Project Structure */}
+                        <div>
+                          <h3 className="text-lg font-medium mb-3 flex items-center">
+                            <FolderTree className="w-5 h-5 mr-2" />
+                            Project Structure
+                          </h3>
+                          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
+                            <code>{generatedCode.projectStructure}</code>
+                          </pre>
+                        </div>
+                        
+                        {/* Dependencies */}
+                        <div>
+                          <h3 className="text-lg font-medium mb-3 flex items-center">
+                            <Package className="w-5 h-5 mr-2" />
+                            Dependencies
+                          </h3>
+                          <div className="flex flex-wrap gap-2">
+                            {generatedCode.dependencies?.map((dep, index) => (
+                              <Badge key={index} variant="outline">
+                                {dep}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        {/* Run Instructions */}
+                        <div>
+                          <h3 className="text-lg font-medium mb-3 flex items-center">
+                            <Terminal className="w-5 h-5 mr-2" />
+                            Run Instructions
+                          </h3>
+                          <div className="bg-gray-900 text-gray-100 p-4 rounded-lg">
+                            <code>{generatedCode.runInstructions}</code>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* File Tabs - Improved Layout */}
                         <div className="border-b border-gray-200 pb-2">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-medium text-gray-700">Generated Files ({generatedCode.files.length})</span>
@@ -2635,201 +2363,22 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                           </div>
                         )}
                       </div>
+                    )}
                   </CardContent>
                 </Card>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Figma & Images Tab Content - Exact copy from Design tab */}
-          {selectedTab === 'figma' && (
-            <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Palette size={18} />
-                  <h3 className="text-lg font-semibold text-gray-900">Figma & Images</h3>
-                </div>
-                <p className="text-sm text-gray-600">Upload designs or provide Figma URLs for code generation</p>
-              </div>
-              
-              {/* Single Code Configuration Card - matches Design tab styling */}
-              <Card className="shadow-lg border-0 bg-gradient-to-br from-white to-gray-50">
-                <CardHeader>
-                      <CardTitle className="flex items-center">
-                    <Settings className="w-5 h-5 mr-2" />
-                    Code Configuration
-                      </CardTitle>
-                  <CardDescription>
-                    Configure your code generation settings and input source
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Figma & Images Configuration */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Figma URL
-                      </label>
-                      <Input
-                        placeholder="https://www.figma.com/file/..."
-                        value={figmaUrl}
-                        onChange={(e) => setFigmaUrl(e.target.value)}
-                      />
-                    </div>
-                    
-                    <div className="text-center text-sm text-gray-500">or</div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Upload Design Image
-                      </label>
-                      <div 
-                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-gray-400 transition-colors"
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleFileUpload}
-                          className="hidden"
-                        />
-                        {designFile ? (
-                          <div className="space-y-2">
-                            <FileImage className="w-8 h-8 text-green-600 mx-auto" />
-                            <p className="text-sm font-medium text-green-700">{designFile.name}</p>
-                            <p className="text-xs text-green-600">Click to change</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <Upload className="w-8 h-8 text-gray-400 mx-auto" />
-                            <p className="text-sm text-gray-600">
-                              <span className="font-medium text-blue-600">Click to upload</span> or drag and drop
-                            </p>
-                            <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
-                          </div>
+              ) : (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <Code2 className="w-16 h-16 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Ready to Generate Code</h3>
+                    <p className="text-gray-600 text-center max-w-md">
+                      Select a work item and configure your preferences to generate production-ready code with AI assistance.
+                    </p>
+                  </CardContent>
+                </Card>
               )}
             </div>
           </div>
-                  </div>
-
-                  {/* Code Type Selection */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Code Type
-                    </label>
-                    <div className="grid grid-cols-3 gap-3">
-                            <Button
-                        variant={codeType === 'frontend' ? 'default' : 'outline'}
-                              size="sm"
-                        onClick={() => setCodeType('frontend')}
-                        className="flex flex-col items-center p-4 h-auto"
-                            >
-                        <Monitor className="w-5 h-5 mb-1" />
-                        <span className="text-xs">Frontend</span>
-                            </Button>
-                            <Button
-                        variant={codeType === 'backend' ? 'default' : 'outline'}
-                              size="sm"
-                        onClick={() => setCodeType('backend')}
-                        className="flex flex-col items-center p-4 h-auto"
-                            >
-                        <Server className="w-5 h-5 mb-1" />
-                        <span className="text-xs">Backend</span>
-                            </Button>
-                            <Button
-                        variant={codeType === 'fullstack' ? 'default' : 'outline'}
-                              size="sm"
-                        onClick={() => setCodeType('fullstack')}
-                        className="flex flex-col items-center p-4 h-auto"
-                            >
-                        <Globe className="w-5 h-5 mb-1" />
-                        <span className="text-xs">Full Stack</span>
-                            </Button>
-                          </div>
-                        </div>
-                        
-                  {/* Programming Language & Framework */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700">Programming Language</label>
-                      <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select language" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          <SelectItem value="javascript">JavaScript</SelectItem>
-                          <SelectItem value="typescript">TypeScript</SelectItem>
-                          <SelectItem value="python">Python</SelectItem>
-                          <SelectItem value="java">Java</SelectItem>
-                          <SelectItem value="csharp">C#</SelectItem>
-                          <SelectItem value="php">PHP</SelectItem>
-                        </SelectContent>
-                      </Select>
-                        </div>
-                        
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700">Framework</label>
-                      <Select value={framework} onValueChange={setFramework}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select framework" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          <SelectItem value="vanilla">Vanilla HTML, CSS, JS - Single File</SelectItem>
-                          <SelectItem value="react">React</SelectItem>
-                          <SelectItem value="vue">Vue.js</SelectItem>
-                          <SelectItem value="angular">Angular</SelectItem>
-                          <SelectItem value="svelte">Svelte</SelectItem>
-                          <SelectItem value="next">Next.js</SelectItem>
-                          <SelectItem value="nuxt">Nuxt.js</SelectItem>
-                        </SelectContent>
-                      </Select>
-                          </div>
-                        </div>
-                        
-                  {/* Design Requirements */}
-                        <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Design Requirements
-                    </label>
-                    <Textarea
-                      placeholder="Describe your design requirements, style preferences, or specific features..."
-                      value={additionalRequirements}
-                      onChange={(e) => setAdditionalRequirements(e.target.value)}
-                      className="min-h-[80px]"
-                    />
-                        </div>
-                        
-                  {/* Generate Button */}
-                  <div className="pt-4">
-                            <Button
-                      onClick={generateCode}
-                      disabled={isGenerating || (!figmaUrl && !designFile)}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                      size="lg"
-                    >
-                      {isGenerating ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Generating Code... 
-                        </>
-                      ) : (
-                        <>
-                          <Code2 className="w-4 h-4 mr-2" />
-                          Generate & Publish Code
-                        </>
-                              )}
-                            </Button>
-                          </div>
-                  </CardContent>
-                </Card>
-            </div>
-          )}
-
         </TabsContent>
 
         {/* Reverse Engineering Tab */}
@@ -3186,7 +2735,7 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                                 <div>
                                   <span className="text-sm font-medium text-gray-500">Quantifiable Outcomes:</span>
                                   <ul className="mt-1 text-sm text-gray-700 list-disc list-inside">
-                                    {reverseEngineeredItems.businessBrief.quantifiableBusinessOutcomes?.map((outcome: string, index: number) => (
+                                    {reverseEngineeredItems.businessBrief.quantifiableBusinessOutcomes?.map((outcome, index) => (
                                       <li key={index}>{outcome}</li>
                                     ))}
                                   </ul>
@@ -3215,7 +2764,7 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                                         <p className="text-sm text-purple-700 mt-1">{initiative.description}</p>
                                         <div className="flex items-center space-x-4 mt-2">
                                           <span className="text-xs text-purple-600">ID: {initiative.id}</span>
-                                          <Badge variant="outline">{initiative.priority || 'medium'}</Badge>
+                                          <Badge variant="outline" size="sm">{initiative.priority || 'medium'}</Badge>
                                         </div>
                                       </div>
                                     </div>
@@ -3245,7 +2794,7 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                                         <p className="text-sm text-green-700 mt-1">{feature.description}</p>
                                         <div className="flex items-center space-x-4 mt-2">
                                           <span className="text-xs text-green-600">ID: {feature.id}</span>
-                                          <Badge variant="outline">{feature.priority || 'medium'}</Badge>
+                                          <Badge variant="outline" size="sm">{feature.priority || 'medium'}</Badge>
                                         </div>
                                       </div>
                                     </div>
@@ -3275,7 +2824,7 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                                         <p className="text-sm text-orange-700 mt-1">{epic.description}</p>
                                         <div className="flex items-center space-x-4 mt-2">
                                           <span className="text-xs text-orange-600">ID: {epic.id}</span>
-                                          <Badge variant="outline">{epic.priority || 'medium'}</Badge>
+                                          <Badge variant="outline" size="sm">{epic.priority || 'medium'}</Badge>
                                         </div>
                                       </div>
                                     </div>
@@ -3307,7 +2856,7 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                                           <div className="mt-2">
                                             <span className="text-xs font-medium text-red-600">Acceptance Criteria:</span>
                                             <ul className="text-xs text-red-600 list-disc list-inside mt-1">
-                                              {story.acceptanceCriteria.map((criteria: string, idx: number) => (
+                                              {story.acceptanceCriteria.map((criteria, idx) => (
                                                 <li key={idx}>{criteria}</li>
                                               ))}
                                             </ul>
@@ -3315,9 +2864,9 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
                                         )}
                                         <div className="flex items-center space-x-4 mt-2">
                                           <span className="text-xs text-red-600">ID: {story.id}</span>
-                                          <Badge variant="outline">{story.priority || 'medium'}</Badge>
+                                          <Badge variant="outline" size="sm">{story.priority || 'medium'}</Badge>
                                           {story.storyPoints && (
-                                            <Badge variant="outline">{story.storyPoints} pts</Badge>
+                                            <Badge variant="outline" size="sm">{story.storyPoints} pts</Badge>
                                           )}
                                         </div>
                                       </div>
@@ -3347,6 +2896,118 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* AI Code Review Panel */}
+      {showReview && codeReview && !isFullscreen && (
+        <Card className="mt-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center">
+                <MessageSquare className="w-5 h-5 mr-2" />
+                AI Code Review
+              </CardTitle>
+              <div className="flex items-center space-x-2">
+                <Badge variant={codeReview.overallScore >= 80 ? 'default' : codeReview.overallScore >= 60 ? 'secondary' : 'destructive'}>
+                  Score: {codeReview.overallScore}/100
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowReview(false)}
+                >
+                  <XCircle className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            <CardDescription>
+              {codeReview.summary}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {codeReview.suggestions.map((suggestion) => (
+                <div key={suggestion.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center space-x-2">
+                      <Badge variant={
+                        suggestion.severity === 'high' ? 'destructive' :
+                        suggestion.severity === 'medium' ? 'secondary' : 'outline'
+                      }>
+                        {suggestion.type}
+                      </Badge>
+                      <Badge variant="outline">
+                        {suggestion.severity}
+                      </Badge>
+                      <span className="text-sm text-gray-600">
+                        {suggestion.file}
+                        {suggestion.line && ` : Line ${suggestion.line}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {suggestion.accepted === undefined ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleSuggestionAction(suggestion.id, true)}
+                            className="text-green-600 border-green-200 hover:bg-green-50"
+                          >
+                            <CheckCircle className="w-4 h-4 mr-1" />
+                            Accept
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleSuggestionAction(suggestion.id, false)}
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                          >
+                            <XCircle className="w-4 h-4 mr-1" />
+                            Reject
+                          </Button>
+                        </>
+                      ) : (
+                        <Badge variant={suggestion.accepted ? 'default' : 'secondary'}>
+                          {suggestion.accepted ? 'Accepted' : 'Rejected'}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-gray-900">
+                      {suggestion.message}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {suggestion.suggestion}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              
+              {codeReview.suggestions.some(s => s.accepted === true) && (
+                <div className="flex justify-end pt-4 border-t border-gray-200">
+                  <Button 
+                    onClick={applySuggestions} 
+                    className="flex items-center"
+                    disabled={isGenerating}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Applying Suggestions...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Apply Accepted Suggestions
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Help Section */}
       {!isFullscreen && (
