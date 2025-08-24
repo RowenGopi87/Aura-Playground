@@ -145,8 +145,9 @@ export default function DesignPage() {
   // Start with first few portfolios expanded by default so users can see the structure
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [portfolios, setPortfolios] = useState<any[]>([]);
-  const [businessBriefs, setBusinessBriefs] = useState<any[]>([]);
-  const [portfolioMapping, setPortfolioMapping] = useState<Record<string, string>>({});  // initiativeId -> portfolioId
+  
+  // Get business briefs from the store (same as Requirements page)
+  const { useCases: businessBriefs } = useUseCaseStore();
 
   // Load portfolios from database (like V1 requirements)
   const loadPortfolios = async () => {
@@ -164,178 +165,47 @@ export default function DesignPage() {
     }
   };
 
-  // Load portfolios and business briefs from database  
-  const loadBusinessBriefs = async () => {
-    try {
-      console.log('📋 Loading business briefs...');
-      const response = await fetch('/api/business-briefs/list');
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        setBusinessBriefs(data.data);
-        console.log(`✅ Loaded ${data.data.length} business briefs`);
-      }
-    } catch (error) {
-      console.error('❌ Failed to load business briefs:', error);
-    }
-  };
-
-  // Load all work items with proper portfolio mapping from database
-  const loadWorkItemsData = async () => {
-    try {
-      // Only load if stores are empty to avoid duplicates
-      if (initiatives.length === 0 && features.length === 0 && epics.length === 0 && stories.length === 0) {
-        console.log('🔄 Loading work items data from API...');
-        
-        await Promise.all([
-          // Load initiatives with portfolioId
-          fetch('/api/initiatives/list').then(async res => {
-            const data = await res.json();
-            if (data.success) {
-              // Create portfolio mapping
-              const newPortfolioMapping: Record<string, string> = {};
-              
-              data.data.forEach((item: any) => {
-                // Store portfolio mapping separately
-                if (item.portfolioId) {
-                  newPortfolioMapping[item.id] = item.portfolioId;
-                }
-                
-                addInitiative({
-                  id: item.id,
-                  businessBriefId: item.businessBriefId,
-                  title: item.title,
-                  description: item.description,
-                  category: 'business',
-                  priority: item.priority,
-                  rationale: item.description,
-                  acceptanceCriteria: Array.isArray(item.acceptanceCriteria) ? item.acceptanceCriteria : JSON.parse(item.acceptanceCriteria || '[]'),
-                  businessValue: item.businessValue,
-                  workflowLevel: 'initiative',
-                  status: item.status,
-                  createdAt: new Date(item.createdAt),
-                  updatedAt: new Date(item.updatedAt),
-                  createdBy: item.assignedTo || 'System',
-                  assignedTo: item.assignedTo || 'Team'
-                });
-              });
-              
-              // Update portfolio mapping
-              setPortfolioMapping(prev => ({ ...prev, ...newPortfolioMapping }));
-            }
-          }),
-          
-          // Load features
-          fetch('/api/features/list').then(async res => {
-            const data = await res.json();
-            if (data.success) {
-              data.data.forEach((item: any) => addFeature({
-                id: item.id,
-                initiativeId: item.initiativeId,
-                businessBriefId: item.businessBriefId,
-                title: item.title,
-                description: item.description,
-                category: 'business',
-                priority: item.priority,
-                rationale: item.description,
-                status: item.status,
-                acceptanceCriteria: Array.isArray(item.acceptanceCriteria) ? item.acceptanceCriteria : JSON.parse(item.acceptanceCriteria || '[]'),
-                businessValue: item.businessValue || '',
-                workflowLevel: 'feature',
-                createdAt: new Date(item.createdAt),
-                updatedAt: new Date(item.updatedAt),
-                createdBy: 'System',
-                assignedTo: 'Team'
-              }));
-            }
-          }),
-          
-          // Load epics
-          fetch('/api/epics/list').then(async res => {
-            const data = await res.json();
-            if (data.success) {
-              data.data.forEach((item: any) => addEpic({
-                id: item.id,
-                featureId: item.featureId,
-                initiativeId: item.initiativeId,
-                businessBriefId: item.businessBriefId,
-                title: item.title,
-                description: item.description,
-                category: 'business',
-                priority: item.priority,
-                rationale: item.description,
-                status: item.status,
-                acceptanceCriteria: Array.isArray(item.acceptanceCriteria) ? item.acceptanceCriteria : JSON.parse(item.acceptanceCriteria || '[]'),
-                businessValue: item.businessValue || '',
-                workflowLevel: 'epic',
-                createdAt: new Date(item.createdAt),
-                updatedAt: new Date(item.updatedAt),
-                createdBy: 'System',
-                assignedTo: 'Team'
-              }));
-            }
-          }),
-          
-          // Load stories
-          fetch('/api/stories/list').then(async res => {
-            const data = await res.json();
-            if (data.success) {
-              data.data.forEach((item: any) => addStory({
-                id: item.id,
-                epicId: item.epicId,
-                featureId: item.featureId,
-                initiativeId: item.initiativeId,
-                businessBriefId: item.businessBriefId,
-                title: item.title,
-                description: item.description,
-                category: 'business',
-                priority: item.priority,
-                rationale: item.description,
-                status: item.status,
-                acceptanceCriteria: Array.isArray(item.acceptance_criteria) ? item.acceptance_criteria : JSON.parse(item.acceptance_criteria || '[]'),
-                businessValue: item.businessValue || '',
-                workflowLevel: 'story',
-                storyPoints: item.storyPoints || 0,
-                createdAt: new Date(item.createdAt),
-                updatedAt: new Date(item.updatedAt),
-                createdBy: 'System',
-                assignedTo: 'Team'
-              }));
-            }
-          })
-        ]);
-        
-        console.log('✅ Work items data loaded successfully');
-      }
-    } catch (error) {
-      console.error('❌ Failed to load work items:', error);
-    }
-  };
-
-  // Load data on mount
+  // Initial data loading when page mounts (same as Requirements page)
   useEffect(() => {
-    const loadAllData = async () => {
-      await Promise.all([
-        loadPortfolios(),
-        loadBusinessBriefs(),
-        loadWorkItemsData()
-      ]);
+    const loadInitialData = async () => {
+      console.log('🚀 Loading initial data for Design page...');
+      
+      const useCaseStore = useUseCaseStore.getState();
+      
+      try {
+        // Load portfolios for grouping
+        await loadPortfolios();
+        
+        // Load business briefs (same as Requirements page)
+        console.log('📊 Loading business briefs...');
+        await useCaseStore.loadFromDatabase();
+        
+        console.log('✅ Initial data loading completed');
+      } catch (error) {
+        console.error('❌ Error loading initial data:', error);
+      }
     };
     
-    loadAllData();
-  }, []);
+    loadInitialData();
+  }, []); // Only run once on mount
 
-  // Auto-expand first few portfolios after data loads so users can see the structure
+  // Auto-expand first few portfolios when data is available
   useEffect(() => {
-    if (portfolios.length > 0 && expandedItems.size === 0) {
-      const portfoliosToExpand = portfolios.slice(0, 2).map(p => `portfolio-${p.id}`);
-      const briefsToExpand = portfolios.slice(0, 2).flatMap(p => 
-        businessBriefs.filter(bb => bb.portfolioId === p.id).slice(0, 1).map(bb => `brief-${bb.id}`)
-      );
+    if (portfolios.length > 0 && initiatives.length > 0 && expandedItems.size === 0) {
+      // Get unique portfolio IDs from initiatives
+      const portfolioIds = Array.from(new Set(
+        initiatives
+          .map((init: any) => init.portfolioId)
+          .filter(Boolean)
+          .slice(0, 2)
+      ));
       
-      setExpandedItems(new Set([...portfoliosToExpand, ...briefsToExpand, 'portfolio-unassigned', 'brief-unassigned']));
+      const portfoliosToExpand = portfolioIds.map(id => `portfolio-${id}`);
+      const briefsToExpand = ['brief-unassigned']; // Expand unassigned by default
+      
+      setExpandedItems(new Set([...portfoliosToExpand, ...briefsToExpand, 'portfolio-unassigned']));
     }
-  }, [portfolios, businessBriefs]);
+  }, [portfolios, initiatives]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workItemImageRef = useRef<HTMLInputElement>(null);
@@ -1270,7 +1140,8 @@ ${generatedCode.html}`;
     const byPortfolio: Record<string, any> = {};
 
     allWorkItems.filter(item => item.type === 'initiative').forEach(initiative => {
-      const portfolioId = portfolioMapping[initiative.id] || 'unassigned';
+      // Check if initiative has portfolioId (same as Requirements page logic)
+      const portfolioId = (initiative as any).portfolioId || 'unassigned';
       const businessBriefId = (initiative as any).businessBriefId || 'unassigned';
 
       if (!byPortfolio[portfolioId]) {
@@ -1291,7 +1162,7 @@ ${generatedCode.html}`;
     });
 
     return byPortfolio;
-  }, [allWorkItems, portfolios, businessBriefs, portfolioMapping]);
+  }, [allWorkItems, portfolios, businessBriefs]);
 
   // Get child items for a work item
   const getChildItems = (item: any, type: string) => {
