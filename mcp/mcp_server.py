@@ -17,8 +17,12 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Load environment variables
-load_dotenv()
+# Import our official services
+from official_gemini_service import get_official_gemini_service, generate_text_with_official_gemini, generate_multimodal_with_official_gemini
+from official_openai_service import get_official_openai_service, generate_text_with_official_openai, generate_multimodal_with_official_openai
+
+# Load environment variables from the env file
+load_dotenv("env")
 
 # Fix SSL certificate issues
 def fix_ssl_certificates():
@@ -48,8 +52,8 @@ fix_ssl_certificates()
 # Pydantic models for request/response validation
 class TestCaseExecutionRequest(BaseModel):
     testCase: Dict[str, Any]
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class TestCaseExecutionResponse(BaseModel):
     result: str
@@ -64,8 +68,8 @@ class JiraIssueRequest(BaseModel):
     project: str = "AURA"
     issueType: str = "Task"
     priority: str = "Medium"
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class JiraIssueResponse(BaseModel):
     success: bool
@@ -79,8 +83,8 @@ class DesignCodeGenerationRequest(BaseModel):
     framework: str = "react"
     imageData: Optional[str] = None
     imageType: Optional[str] = None
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class DesignCodeGenerationResponse(BaseModel):
     success: bool
@@ -94,9 +98,9 @@ class CodeGenerationRequest(BaseModel):
     codeType: str
     language: str
     framework: str
-    workItemId: str
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    workItemId: Optional[str] = None
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class CodeGenerationResponse(BaseModel):
     success: bool
@@ -109,8 +113,8 @@ class CodeReviewRequest(BaseModel):
     userPrompt: str
     codeType: str
     language: str
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class CodeReviewResponse(BaseModel):
     success: bool
@@ -125,8 +129,8 @@ class ApplySuggestionsRequest(BaseModel):
     acceptedSuggestions: List[Dict[str, Any]]
     codeType: str
     language: str
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class ApplySuggestionsResponse(BaseModel):
     success: bool
@@ -141,8 +145,8 @@ class ReverseEngineerDesignRequest(BaseModel):
     hasImage: bool
     imageData: Optional[str] = None
     imageType: Optional[str] = None
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class ReverseEngineerDesignResponse(BaseModel):
     success: bool
@@ -153,10 +157,11 @@ class ReverseEngineerDesignResponse(BaseModel):
 class ReverseEngineerCodeRequest(BaseModel):
     systemPrompt: str
     userPrompt: str
+    code: str
     analysisLevel: str
     codeLength: int
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class ReverseEngineerCodeResponse(BaseModel):
     success: bool
@@ -599,20 +604,60 @@ async def generate_design_code(request: DesignCodeGenerationRequest):
 {request.userPrompt}
 """
 
-        # Create LLM directly (no MCP tools needed for design generation)
+        print(f"[DEBUG] System prompt: '{request.systemPrompt}'")
+        print(f"[DEBUG] User prompt: '{request.userPrompt}'")
+        print(f"[DEBUG] Full prompt length: {len(full_prompt)} chars")
+        print(f"[DEBUG] Full prompt preview: {full_prompt[:200]}...")
+
+        # Create LLM - use official SDKs when possible, LangChain as fallback
+        llm = None
+        use_official_gemini = False
+        use_official_openai = False
+        
         try:
             if request.llm_provider == "google":
-                llm = ChatGoogleGenerativeAI(
-                    model=request.model,
-                    google_api_key=os.getenv("GOOGLE_API_KEY")
-                )
+                # Try official Google GenAI SDK first
+                try:
+                    official_service = get_official_gemini_service()
+                    if official_service.is_available():
+                        print(f"[LLM] Using Official Google GenAI SDK for {request.model}")
+                        use_official_gemini = True
+                    else:
+                        print(f"[LLM] Official SDK not available, falling back to LangChain")
+                        raise Exception("Official SDK not available")
+                except Exception as official_error:
+                    print(f"[WARNING] Official SDK failed: {official_error}, using LangChain fallback")
+                    # Fallback to LangChain
+                    api_key = os.getenv("GOOGLE_API_KEY")
+                    print(f"[DEBUG] Google API key loaded: {'Yes' if api_key else 'No'}")
+                    if api_key:
+                        print(f"[DEBUG] API key preview: {api_key[:10]}...{api_key[-10:]}")
+                    
+                    llm = ChatGoogleGenerativeAI(
+                        model=request.model,
+                        google_api_key=api_key
+                    )
             else:
-                llm = ChatOpenAI(
-                    model="gpt-4",
-                    openai_api_key=os.getenv("OPENAI_API_KEY")
-                )
+                # Try official OpenAI SDK first
+                try:
+                    official_service = get_official_openai_service()
+                    if official_service.is_available():
+                        print(f"[LLM] Using Official OpenAI SDK for {request.model}")
+                        use_official_openai = True
+                    else:
+                        print(f"[LLM] Official OpenAI SDK not available, falling back to LangChain")
+                        raise Exception("Official SDK not available")
+                except Exception as official_error:
+                    print(f"[WARNING] Official OpenAI SDK failed: {official_error}, using LangChain fallback")
+                    # Fallback to LangChain
+                    model_to_use = request.model if request.model else "gpt-4o"  
+                    llm = ChatOpenAI(
+                        model=model_to_use,
+                        openai_api_key=os.getenv("OPENAI_API_KEY")
+                    )
             
-            print(f"[LLM] LLM created successfully for {request.llm_provider}")
+            if not use_official_gemini and not use_official_openai:
+                print(f"[LLM] LLM created successfully for {request.llm_provider}")
             
         except Exception as llm_error:
             print(f"[ERROR] Failed to create LLM: {llm_error}")
@@ -626,34 +671,199 @@ async def generate_design_code(request: DesignCodeGenerationRequest):
         start_time = time.time()
         try:
             print(f"[GENERATE] Starting AI code generation...")
-            result = llm.invoke(full_prompt)
+            
+            # Use official SDKs when available
+            if use_official_gemini:
+                print(f"[OFFICIAL-SDK] Using official Google GenAI SDK")
+                
+                if request.imageData and request.imageType:
+                    print(f"[IMAGE] Including image data in generation ({len(request.imageData)} chars)")
+                    
+                    # Use official SDK for multimodal generation
+                    success, content, metadata = generate_multimodal_with_official_gemini(
+                        text_prompt=full_prompt,
+                        image_base64=request.imageData,
+                        image_mime_type=request.imageType,
+                        model=request.model,
+                        disable_thinking=True  # Faster responses
+                    )
+                    
+                    if success:
+                        # Create a mock result object that matches LangChain format
+                        class MockResult:
+                            def __init__(self, content):
+                                self.content = content
+                        
+                        result = MockResult(content)
+                        print(f"[OFFICIAL-SDK] Multimodal generation successful: {len(content)} chars")
+                    else:
+                        raise Exception(f"Official SDK multimodal generation failed: {metadata.get('error', 'Unknown error')}")
+                        
+                else:
+                    print("[TEXT] Processing text-only generation with official SDK")
+                    
+                    # Use official SDK for text generation
+                    success, content, metadata = generate_text_with_official_gemini(
+                        prompt=full_prompt,
+                        model=request.model,
+                        disable_thinking=True  # Faster responses
+                    )
+                    
+                    if success:
+                        # Create a mock result object that matches LangChain format
+                        class MockResult:
+                            def __init__(self, content):
+                                self.content = content
+                        
+                        result = MockResult(content)
+                        print(f"[OFFICIAL-SDK] Text generation successful: {len(content)} chars")
+                    else:
+                        raise Exception(f"Official SDK text generation failed: {metadata.get('error', 'Unknown error')}")
+            
+            elif use_official_openai:
+                print(f"[OFFICIAL-SDK] Using official OpenAI SDK")
+                
+                if request.imageData and request.imageType:
+                    print(f"[IMAGE] Including image data in generation ({len(request.imageData)} chars)")
+                    
+                    # Use official SDK for multimodal generation
+                    success, content, metadata = generate_multimodal_with_official_openai(
+                        text_prompt=full_prompt,
+                        image_base64=request.imageData,
+                        image_mime_type=request.imageType,
+                        model=request.model,
+                        system_prompt=request.systemPrompt,
+                        temperature=0.7,
+                        detail="high"  # High detail for design generation
+                    )
+                    
+                    if success:
+                        # Create a mock result object that matches LangChain format
+                        class MockResult:
+                            def __init__(self, content):
+                                self.content = content
+                        
+                        result = MockResult(content)
+                        print(f"[OFFICIAL-SDK] Multimodal generation successful: {len(content)} chars")
+                    else:
+                        raise Exception(f"Official SDK multimodal generation failed: {metadata.get('error', 'Unknown error')}")
+                        
+                else:
+                    print("[TEXT] Processing text-only generation with official SDK")
+                    
+                    # Use official SDK for text generation
+                    success, content, metadata = generate_text_with_official_openai(
+                        prompt=request.userPrompt,
+                        model=request.model,
+                        system_prompt=request.systemPrompt,
+                        temperature=0.7
+                    )
+                    
+                    if success:
+                        # Create a mock result object that matches LangChain format
+                        class MockResult:
+                            def __init__(self, content):
+                                self.content = content
+                        
+                        result = MockResult(content)
+                        print(f"[OFFICIAL-SDK] Text generation successful: {len(content)} chars")
+                    else:
+                        raise Exception(f"Official SDK text generation failed: {metadata.get('error', 'Unknown error')}")
+            
+            # Use LangChain for non-Google providers or fallback
+            elif request.imageData and request.imageType:
+                print(f"[IMAGE] Including image data in generation ({len(request.imageData)} chars)")
+                
+                # Different formats for different providers
+                if request.llm_provider == "google":
+                    # Google Gemini expects a specific format through LangChain
+                    from langchain_core.messages import HumanMessage
+                    import base64
+                    
+                    # For Google Gemini, we need to use the proper multimodal format
+                    # Extract mime type from imageType (e.g., "image/png" -> "image/png")
+                    mime_type = request.imageType
+                    
+                    # Try the Google-specific format with inline_data
+                    message_content = [
+                        {
+                            "type": "text",
+                            "text": full_prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{request.imageData}"
+                            }
+                        }
+                    ]
+                    
+                    print(f"[DEBUG] Attempting Google Gemini with multimodal content")
+                    print(f"[DEBUG] Image type: {mime_type}, Data length: {len(request.imageData)}")
+                    
+                    # Use HumanMessage for Google Gemini
+                    human_message = HumanMessage(content=message_content)
+                    result = llm.invoke([human_message])
+                    print(f"[DEBUG] Google Gemini invoked successfully")
+                else:
+                    # OpenAI format
+                    message_content = [
+                        {
+                            "type": "text",
+                            "text": full_prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{request.imageType};base64,{request.imageData}"
+                            }
+                        }
+                    ]
+                    
+                    result = llm.invoke([{"role": "user", "content": message_content}])
+            else:
+                print("[TEXT] Processing text-only generation")
+                result = llm.invoke(full_prompt)
+                
             execution_time = time.time() - start_time
             
             print(f"[OK] Code generation completed in {execution_time:.2f}s")
             
-            # Extract the content from the LLM response with better error handling
+            # Extract the content from the LLM response with proper LangChain AIMessage handling
             print(f"[DEBUG] LLM result type: {type(result)}")
-            print(f"[DEBUG] LLM result attributes: {dir(result)}")
             
-            # Check both content and text attributes for LangChain AIMessage
-            content_attr = getattr(result, 'content', None)
-            text_attr = getattr(result, 'text', None)
+            # Properly extract content from LangChain AIMessage
+            result_content = None
             
-            print(f"[DEBUG] result.content: {len(str(content_attr)) if content_attr else 'None'} chars")
-            print(f"[DEBUG] result.text: {len(str(text_attr)) if text_attr else 'None'} chars")
+            # For LangChain AIMessage, check content first, then text property
+            if hasattr(result, 'content') and result.content is not None and len(str(result.content)) > 0:
+                result_content = str(result.content)
+                print(f"[DEBUG] Using result.content: {len(result_content)} chars")
+            elif hasattr(result, 'text') and hasattr(result.text, '__call__'):
+                # result.text might be a method - try calling it
+                try:
+                    text_content = result.text()
+                    if text_content and len(str(text_content)) > 0:
+                        result_content = str(text_content)
+                        print(f"[DEBUG] Using result.text(): {len(result_content)} chars")
+                except:
+                    pass
+            elif hasattr(result, 'text') and result.text is not None and len(str(result.text)) > 0:
+                # result.text might be a property - access it directly
+                try:
+                    result_content = str(result.text)
+                    print(f"[DEBUG] Using result.text property: {len(result_content)} chars")
+                except:
+                    pass
             
-            if content_attr and len(str(content_attr)) > 0:
-                result_content = content_attr
-                print(f"[DEBUG] Using result.content: {len(str(result_content))} chars")
-            elif text_attr and len(str(text_attr)) > 0:
-                result_content = text_attr
-                print(f"[DEBUG] Using result.text: {len(str(result_content))} chars")
-            elif hasattr(result, 'message') and result.message:
-                result_content = result.message
-                print(f"[DEBUG] Using result.message: {len(str(result_content))} chars")
-            else:
-                result_content = str(result)
-                print(f"[DEBUG] Using str(result): {len(str(result_content))} chars")
+            # If still no content, try alternative approaches
+            if not result_content:
+                if hasattr(result, 'message') and result.message:
+                    result_content = str(result.message)
+                    print(f"[DEBUG] Using result.message: {len(result_content)} chars")
+                else:
+                    result_content = str(result)
+                    print(f"[DEBUG] Using str(result) as fallback: {len(result_content)} chars")
             
             print(f"[DEBUG] Final result_content preview: {str(result_content)[:300]}...")
             
@@ -662,24 +872,48 @@ async def generate_design_code(request: DesignCodeGenerationRequest):
                 print(f"[ERROR] LLM returned empty content (0 tokens) - treating as failure")
                 raise Exception(f"LLM returned empty response (0 tokens)")
             
+            # Enhanced validation for minimal content - many Google failures return short, meaningless responses
+            content_str = str(result_content).strip()
+            if len(content_str) < 200:
+                print(f"[ERROR] LLM returned suspiciously short content ({len(content_str)} chars) - likely a failure")
+                print(f"[DEBUG] Short content preview: {content_str[:200]}")
+                raise Exception(f"LLM returned insufficient content ({len(content_str)} chars - minimum 200 required)")
+            
             # Parse the result to extract HTML, CSS, JavaScript
             generated_code = parse_generated_code(str(result_content), request.framework)
             
-            # Additional validation - if parsed HTML is still empty after having content, use raw result
-            if generated_code.get('html', '').count('<body>') > 0:
-                body_start = generated_code['html'].find('<body>') + 6
-                body_end = generated_code['html'].find('</body>')
+            # Enhanced validation - check for meaningful HTML structure
+            html_content = generated_code.get('html', '')
+            
+            # Must have basic HTML structure
+            if not ('<!DOCTYPE html>' in html_content or '<html' in html_content):
+                print(f"[ERROR] Generated content lacks HTML structure - treating as failure")
+                print(f"[DEBUG] Content preview: {html_content[:300]}")
+                raise Exception(f"Generated content is not valid HTML")
+            
+            # Must have meaningful body content
+            if '<body>' in html_content and '</body>' in html_content:
+                body_start = html_content.find('<body>') + 6
+                body_end = html_content.find('</body>')
                 if body_end > body_start:
-                    body_content = generated_code['html'][body_start:body_end].strip()
-                    if len(body_content) < 10:
-                        print(f"[WARNING] Parsed HTML body is empty, using raw LLM result instead")
-                        generated_code = {
-                            "html": str(result_content),
-                            "css": "/* Embedded in HTML */",
-                            "javascript": "/* Embedded in HTML */",
-                            "framework": request.framework,
-                            "generatedAt": datetime.now().isoformat()
-                        }
+                    body_content = html_content[body_start:body_end].strip()
+                    # Very relaxed validation: allow simple components like buttons
+                    if len(body_content) < 5:
+                        print(f"[ERROR] HTML body content too minimal ({len(body_content)} chars) - treating as failure")
+                        print(f"[DEBUG] Body content: {body_content}")
+                        raise Exception(f"Generated HTML has insufficient body content ({len(body_content)} chars)")
+                    elif len(body_content) < 20:
+                        print(f"[INFO] HTML body content is minimal ({len(body_content)} chars) but acceptable for simple components")
+                        print(f"[DEBUG] Body content: {body_content}")
+                    else:
+                        print(f"[INFO] HTML body content length: {len(body_content)} chars")
+                        print(f"[DEBUG] Body content preview: {body_content[:100]}...")
+            else:
+                print(f"[ERROR] Generated HTML missing body tags - treating as failure")
+                raise Exception(f"Generated HTML structure is incomplete (missing body tags)")
+            
+            print(f"[VALIDATION] Content passed quality checks - HTML length: {len(html_content)}")
+            print(f"[VALIDATION] Body content length: {len(body_content) if 'body_content' in locals() else 'N/A'}")
 
             return DesignCodeGenerationResponse(
                 success=True,
@@ -716,28 +950,57 @@ async def generate_code(request: CodeGenerationRequest):
         print(f"[FRAMEWORK] Target framework: {request.framework}")
         print(f"[WORK_ITEM] Work item ID: {request.workItemId}")
         
-        # Create LLM directly (no MCP tools needed for code generation)
-        try:
-            if request.llm_provider == "google":
-                llm = ChatGoogleGenerativeAI(
-                    model=request.model,
-                    google_api_key=os.getenv("GOOGLE_API_KEY")
+        # Try to use official SDK first, fallback to LangChain
+        official_sdk_used = False
+        llm = None
+        
+        # Initialize official SDK if available
+        if request.llm_provider == "google":
+            try:
+                official_gemini_service = get_official_gemini_service()
+                if official_gemini_service and official_gemini_service.is_available():
+                    print(f"[LLM] Using Official Google GenAI SDK for {request.model}")
+                    official_sdk_used = True
+                else:
+                    print(f"[LLM] Official Google GenAI SDK not available, falling back to LangChain")
+            except Exception as e:
+                print(f"[WARN] Failed to initialize official Google SDK: {e}")
+        elif request.llm_provider == "openai":
+            try:
+                official_openai_service = get_official_openai_service()
+                if official_openai_service and official_openai_service.is_available():
+                    print(f"[LLM] Using Official OpenAI SDK for {request.model}")
+                    official_sdk_used = True
+                else:
+                    print(f"[LLM] Official OpenAI SDK not available, falling back to LangChain")
+            except Exception as e:
+                print(f"[WARN] Failed to initialize official OpenAI SDK: {e}")
+        
+        # Fallback to LangChain if official SDK not used
+        if not official_sdk_used:
+            try:
+                if request.llm_provider == "google":
+                    llm = ChatGoogleGenerativeAI(
+                        model=request.model,
+                        google_api_key=os.getenv("GOOGLE_API_KEY")
+                    )
+                else:
+                    # Use GPT-4o for vision capabilities and improved performance
+                    model_to_use = request.model if request.model else "gpt-4o"
+                    llm = ChatOpenAI(
+                        model=model_to_use,
+                        openai_api_key=os.getenv("OPENAI_API_KEY")
+                    )
+                
+                print(f"[LLM] LangChain LLM created successfully for {request.llm_provider}")
+                
+            except Exception as llm_error:
+                print(f"[ERROR] Failed to create LLM: {llm_error}")
+                return CodeGenerationResponse(
+                    success=False,
+                    message="Failed to initialize LLM",
+                    error=str(llm_error)
                 )
-            else:
-                llm = ChatOpenAI(
-                    model="gpt-4",
-                    openai_api_key=os.getenv("OPENAI_API_KEY")
-                )
-            
-            print(f"[LLM] LLM created successfully for {request.llm_provider}")
-            
-        except Exception as llm_error:
-            print(f"[ERROR] Failed to create LLM: {llm_error}")
-            return CodeGenerationResponse(
-                success=False,
-                message="Failed to initialize LLM",
-                error=str(llm_error)
-            )
 
         # Combine system and user prompts
         full_prompt = f"""
@@ -750,13 +1013,61 @@ async def generate_code(request: CodeGenerationRequest):
         start_time = time.time()
         try:
             print(f"[GENERATE] Starting AI code generation...")
-            result = llm.invoke(full_prompt)
-            execution_time = time.time() - start_time
             
-            print(f"[OK] Code generation completed in {execution_time:.2f}s")
-            
-            # Extract the content from the LLM response
-            result_content = result.content if hasattr(result, 'content') else str(result)
+            if official_sdk_used:
+                print(f"[OFFICIAL-SDK] Using official {request.llm_provider.upper()} SDK")
+                print(f"[TEXT] Processing text-only generation with official SDK")
+                
+                if request.llm_provider == "google":
+                    success, result_content, metadata = generate_text_with_official_gemini(
+                        prompt=full_prompt,
+                        model=request.model,
+                        disable_thinking=True
+                    )
+                    if not success:
+                        raise Exception(f"Google Gemini generation failed: {result_content}")
+                else:  # OpenAI
+                    success, result_content, metadata = generate_text_with_official_openai(
+                        prompt=full_prompt,
+                        model=request.model,
+                        temperature=0.7,
+                        max_tokens=4000
+                    )
+                    if not success:
+                        raise Exception(f"OpenAI generation failed: {result_content}")
+                
+                execution_time = time.time() - start_time
+                print(f"[OFFICIAL-SDK] Text generation successful: {len(result_content)} chars")
+                print(f"[OK] Code generation completed in {execution_time:.2f}s")
+                
+            else:
+                # Use LangChain fallback
+                result = llm.invoke(full_prompt)
+                execution_time = time.time() - start_time
+                
+                print(f"[OK] Code generation completed in {execution_time:.2f}s")
+                
+                # Extract the content from the LLM response with proper LangChain AIMessage handling
+                result_content = None
+                
+                # For LangChain AIMessage, check content first, then text property
+                if hasattr(result, 'content') and result.content is not None and len(str(result.content)) > 0:
+                    result_content = str(result.content)
+                elif hasattr(result, 'text'):
+                    # result.text might be a method or property - handle both cases
+                    try:
+                        if hasattr(result.text, '__call__'):
+                            text_content = result.text()
+                            if text_content and len(str(text_content)) > 0:
+                                result_content = str(text_content)
+                        else:
+                            result_content = str(result.text)
+                    except:
+                        pass
+                
+                # Fallback to string representation if no content found
+                if not result_content:
+                    result_content = str(result)
             
             # Parse the result to extract code files and structure
             generated_code = parse_generated_code_response(result_content, request.codeType, request.language)
@@ -764,7 +1075,7 @@ async def generate_code(request: CodeGenerationRequest):
             return CodeGenerationResponse(
                 success=True,
                 data=generated_code,
-                message=f"Code generated successfully in {execution_time:.2f}s"
+                message=f"Code generated successfully in {execution_time:.2f}s using {request.llm_provider}"
             )
             
         except Exception as generation_error:
@@ -803,8 +1114,10 @@ async def review_code(request: CodeReviewRequest):
                     google_api_key=os.getenv("GOOGLE_API_KEY")
                 )
             else:
+                # Use GPT-4o for vision capabilities and improved performance
+                model_to_use = request.model if request.model else "gpt-4o"
                 llm = ChatOpenAI(
-                    model="gpt-4",
+                    model=model_to_use,
                     openai_api_key=os.getenv("OPENAI_API_KEY")
                 )
             
@@ -834,8 +1147,27 @@ async def review_code(request: CodeReviewRequest):
             
             print(f"[OK] Code review completed in {execution_time:.2f}s")
             
-            # Extract the content from the LLM response
-            result_content = result.content if hasattr(result, 'content') else str(result)
+            # Extract the content from the LLM response with proper LangChain AIMessage handling
+            result_content = None
+            
+            # For LangChain AIMessage, check content first, then text property
+            if hasattr(result, 'content') and result.content is not None and len(str(result.content)) > 0:
+                result_content = str(result.content)
+            elif hasattr(result, 'text'):
+                # result.text might be a method or property - handle both cases
+                try:
+                    if hasattr(result.text, '__call__'):
+                        text_content = result.text()
+                        if text_content and len(str(text_content)) > 0:
+                            result_content = str(text_content)
+                    else:
+                        result_content = str(result.text)
+                except:
+                    pass
+            
+            # Fallback to string representation if no content found
+            if not result_content:
+                result_content = str(result)
             
             # Parse the result to extract review data
             review_data = parse_code_review_response(result_content, request.codeType, request.language)
@@ -873,8 +1205,8 @@ class ApplySuggestionsRequest(BaseModel):
     acceptedSuggestions: List[Dict[str, Any]]
     codeType: str
     language: str
-    llm_provider: str = "google"
-    model: str = "gemini-2.5-pro"
+    llm_provider: str = "openai"
+    model: str = "gpt-4o"
 
 class ApplySuggestionsResponse(BaseModel):
     success: bool
@@ -899,8 +1231,10 @@ async def apply_suggestions(request: ApplySuggestionsRequest):
                     google_api_key=os.getenv("GOOGLE_API_KEY")
                 )
             else:
+                # Use GPT-4o for vision capabilities and improved performance
+                model_to_use = request.model if request.model else "gpt-4o"
                 llm = ChatOpenAI(
-                    model="gpt-4",
+                    model=model_to_use,
                     openai_api_key=os.getenv("OPENAI_API_KEY")
                 )
             
@@ -930,8 +1264,27 @@ async def apply_suggestions(request: ApplySuggestionsRequest):
             
             print(f"[OK] Suggestion application completed in {execution_time:.2f}s")
             
-            # Extract the content from the LLM response
-            result_content = result.content if hasattr(result, 'content') else str(result)
+            # Extract the content from the LLM response with proper LangChain AIMessage handling
+            result_content = None
+            
+            # For LangChain AIMessage, check content first, then text property
+            if hasattr(result, 'content') and result.content is not None and len(str(result.content)) > 0:
+                result_content = str(result.content)
+            elif hasattr(result, 'text'):
+                # result.text might be a method or property - handle both cases
+                try:
+                    if hasattr(result.text, '__call__'):
+                        text_content = result.text()
+                        if text_content and len(str(text_content)) > 0:
+                            result_content = str(text_content)
+                    else:
+                        result_content = str(result.text)
+                except:
+                    pass
+            
+            # Fallback to string representation if no content found
+            if not result_content:
+                result_content = str(result)
             
             # Parse the result to extract improved code
             improved_code = parse_suggestion_application_response(result_content, request.originalCode, request.acceptedSuggestions)
@@ -974,20 +1327,54 @@ def parse_generated_code(llm_result: str, framework: str) -> Dict[str, Any]:
         
         # Look for HTML code blocks or complete HTML
         html_content = ""
+        
+        # First, try to find a complete HTML document in code blocks
         if '```html' in result_str:
-            # Extract HTML from code block
-            html_start = result_str.find('```html') + 7
-            html_end = result_str.find('```', html_start)
-            html_content = result_str[html_start:html_end].strip()
-            print(f"[PARSE] Extracted HTML from code block, length: {len(html_content)}")
-        elif '<!DOCTYPE html>' in result_str:
+            # Look for all HTML code blocks and find the one with complete HTML structure
+            html_blocks = []
+            start_pos = 0
+            
+            while True:
+                html_start = result_str.find('```html', start_pos)
+                if html_start == -1:
+                    break
+                    
+                html_start += 7  # Skip '```html'
+                html_end = result_str.find('```', html_start)
+                
+                if html_end > html_start:
+                    block_content = result_str[html_start:html_end].strip()
+                    html_blocks.append(block_content)
+                    print(f"[PARSE] Found HTML block {len(html_blocks)}, length: {len(block_content)}")
+                    
+                    # Check if this block contains a complete HTML document
+                    if '<!DOCTYPE html>' in block_content or '<html' in block_content:
+                        html_content = block_content
+                        print(f"[PARSE] Using complete HTML document from block {len(html_blocks)}, length: {len(html_content)}")
+                        break
+                
+                start_pos = html_end + 3 if html_end != -1 else html_start + 1
+            
+            # If no complete HTML document found, use the largest block
+            if not html_content and html_blocks:
+                html_content = max(html_blocks, key=len)
+                print(f"[PARSE] No complete HTML found, using largest block, length: {len(html_content)}")
+            
+            # If still no content, use fallback
+            if not html_content:
+                print(f"[PARSE] Found ```html but couldn't extract content properly")
+                html_content = result_str.strip()
+                print(f"[PARSE] Using entire result as fallback, length: {len(html_content)}")
+                
+        elif '<!DOCTYPE html>' in result_str or '<html' in result_str:
             # Full HTML document - use as-is
             html_content = result_str.strip()
             print(f"[PARSE] Using complete HTML document, length: {len(html_content)}")
         else:
-            # Fallback - treat entire result as HTML
+            # Fallback - treat entire result as HTML but warn about it
             html_content = result_str.strip()
-            print(f"[PARSE] Using entire result as HTML fallback, length: {len(html_content)}")
+            print(f"[PARSE] WARNING: No clear HTML markers found, using entire result as HTML fallback, length: {len(html_content)}")
+            print(f"[PARSE] Content preview: {html_content[:200]}...")
         
         # For single-file HTML generation, we return the complete HTML as-is
         # and extract CSS/JS only for display purposes in the code tabs
@@ -1521,20 +1908,63 @@ async def reverse_engineer_design(request: ReverseEngineerDesignRequest):
         print(f"[ANALYSIS] Analysis level: {request.analysisLevel}")
         print(f"[IMAGE] Has image data: {request.hasImage}")
         
-        # Create LLM directly (no MCP tools needed for design reverse engineering)
+        # Create LLM - use official SDKs when possible, LangChain as fallback
+        llm = None
+        use_official_gemini = False
+        use_official_openai = False
+        
         try:
             if request.llm_provider == "google":
+                # Try official Google GenAI SDK first
+                try:
+                    official_service = get_official_gemini_service()
+                    if official_service.is_available():
+                        print(f"[LLM] Using Official Google GenAI SDK for reverse engineering")
+                        use_official_gemini = True
+                    else:
+                        print(f"[LLM] Official SDK not available, falling back to LangChain")
+                        raise Exception("Official SDK not available")
+                except Exception as official_error:
+                    print(f"[WARNING] Official SDK failed: {official_error}, using LangChain fallback")
+                    # Fallback to LangChain
+                    llm = ChatGoogleGenerativeAI(
+                        model=request.model,
+                        google_api_key=os.getenv("GOOGLE_API_KEY")
+                    )
+            else:
+                # Try official OpenAI SDK first
+                try:
+                    official_service = get_official_openai_service()
+                    if official_service.is_available():
+                        print(f"[LLM] Using Official OpenAI SDK for reverse engineering")
+                        use_official_openai = True
+                    else:
+                        print(f"[LLM] Official OpenAI SDK not available, falling back to LangChain")
+                        raise Exception("Official SDK not available")
+                except Exception as official_error:
+                    print(f"[WARNING] Official OpenAI SDK failed: {official_error}, using LangChain fallback")
+                    # Fallback to LangChain
+                    model_to_use = request.model if request.model else "gpt-4o"
+                    llm = ChatOpenAI(
+                        model=model_to_use,
+                        openai_api_key=os.getenv("OPENAI_API_KEY")
+                    )
+            
+            # Ensure LLM is created even if Official SDK is used (for fallback scenarios)
+            if use_official_gemini and not llm:
                 llm = ChatGoogleGenerativeAI(
                     model=request.model,
                     google_api_key=os.getenv("GOOGLE_API_KEY")
                 )
-            else:
+            elif use_official_openai and not llm:
+                model_to_use = request.model if request.model else "gpt-4o"
                 llm = ChatOpenAI(
-                    model="gpt-4",
+                    model=model_to_use,
                     openai_api_key=os.getenv("OPENAI_API_KEY")
                 )
             
-            print(f"[LLM] LLM created successfully for {request.llm_provider}")
+            if not use_official_gemini and not use_official_openai:
+                print(f"[LLM] LLM created successfully for {request.llm_provider}")
             
         except Exception as llm_error:
             print(f"[ERROR] Failed to create LLM: {llm_error}")
@@ -1597,7 +2027,7 @@ async def reverse_engineer_design(request: ReverseEngineerDesignRequest):
             execution_time = time.time() - start_time
             print(f"[SUCCESS] Design reverse engineering completed in {execution_time:.2f}s")
             
-            # Try to parse as JSON, handling markdown code blocks
+            # Try to parse as JSON, handling markdown code blocks and OpenAI formatting
             try:
                 import json
                 import re
@@ -1605,13 +2035,30 @@ async def reverse_engineer_design(request: ReverseEngineerDesignRequest):
                 # Remove markdown code block syntax if present
                 cleaned_result = analysis_result.strip()
                 
-                # Check if it's wrapped in markdown code blocks
+                # Handle different markdown code block formats
                 if cleaned_result.startswith('```json\n') and cleaned_result.endswith('\n```'):
                     # Remove the ```json and ``` markers
                     cleaned_result = cleaned_result[7:-4].strip()
+                elif cleaned_result.startswith('```json') and cleaned_result.endswith('```'):
+                    # Remove the ```json and ``` markers (no newlines)
+                    cleaned_result = cleaned_result[7:-3].strip()
                 elif cleaned_result.startswith('```\n') and cleaned_result.endswith('\n```'):
                     # Remove generic ``` markers
                     cleaned_result = cleaned_result[4:-4].strip()
+                elif cleaned_result.startswith('```') and cleaned_result.endswith('```'):
+                    # Remove generic ``` markers (no newlines)
+                    cleaned_result = cleaned_result[3:-3].strip()
+                
+                # Additional cleaning for common OpenAI formatting issues
+                # Remove any leading/trailing non-JSON text
+                json_start = cleaned_result.find('{')
+                json_end = cleaned_result.rfind('}') + 1
+                
+                if json_start != -1 and json_end > json_start:
+                    cleaned_result = cleaned_result[json_start:json_end]
+                
+                print(f"[DEBUG] Attempting to parse JSON with length: {len(cleaned_result)}")
+                print(f"[DEBUG] JSON preview: {cleaned_result[:200]}...")
                 
                 # Try to parse the cleaned JSON
                 parsed_result = json.loads(cleaned_result)
@@ -1674,8 +2121,10 @@ async def reverse_engineer_code(request: ReverseEngineerCodeRequest):
                     google_api_key=os.getenv("GOOGLE_API_KEY")
                 )
             else:
+                # Use GPT-4o for vision capabilities and improved performance
+                model_to_use = request.model if request.model else "gpt-4o"
                 llm = ChatOpenAI(
-                    model="gpt-4",
+                    model=model_to_use,
                     openai_api_key=os.getenv("OPENAI_API_KEY")
                 )
             
@@ -1689,36 +2138,117 @@ async def reverse_engineer_code(request: ReverseEngineerCodeRequest):
                 error=str(llm_error)
             )
         
+        # Try to use official SDK first, fallback to LangChain
+        official_sdk_used = False
+        
+        # Initialize official SDK if available
+        if request.llm_provider == "google":
+            try:
+                official_gemini_service = get_official_gemini_service()
+                if official_gemini_service and official_gemini_service.is_available():
+                    print(f"[LLM] Using Official Google GenAI SDK for {request.model}")
+                    official_sdk_used = True
+                else:
+                    print(f"[LLM] Official Google GenAI SDK not available, falling back to LangChain")
+            except Exception as e:
+                print(f"[WARN] Failed to initialize official Google SDK: {e}")
+        elif request.llm_provider == "openai":
+            try:
+                official_openai_service = get_official_openai_service()
+                if official_openai_service and official_openai_service.is_available():
+                    print(f"[LLM] Using Official OpenAI SDK for {request.model}")
+                    official_sdk_used = True
+                else:
+                    print(f"[LLM] Official OpenAI SDK not available, falling back to LangChain")
+            except Exception as e:
+                print(f"[WARN] Failed to initialize official OpenAI SDK: {e}")
+
         # Execute the code analysis
         start_time = time.time()
         try:
             print(f"[GENERATE] Starting AI code analysis...")
             
-            # Combine system and user prompts
+            # Combine system and user prompts with the code
             full_prompt = f"""
 {request.systemPrompt}
 
 {request.userPrompt}
+
+Code to analyze:
+```
+{request.code}
+```
+
+CRITICAL: You MUST respond with ONLY valid JSON format. Do not include any explanatory text before or after the JSON. Start your response with {{ and end with }}. The JSON must be parseable and contain business requirements, user stories, and acceptance criteria.
+
+Example format:
+{{
+  "businessRequirements": [...],
+  "userStories": [...],
+  "epics": [...],
+  "stories": [...]
+}}
 """
             
-            result = llm.invoke(full_prompt)
-            execution_time = time.time() - start_time
-            
-            print(f"[OK] Code analysis completed in {execution_time:.2f}s")
-            
-            # Extract the content from the LLM response
-            content_attr = getattr(result, 'content', None)
-            text_attr = getattr(result, 'text', None)
-            
-            if content_attr and len(str(content_attr)) > 0:
-                result_content = content_attr
-                print(f"[DEBUG] Using result.content: {len(str(result_content))} chars")
-            elif text_attr and len(str(text_attr)) > 0:
-                result_content = text_attr
-                print(f"[DEBUG] Using result.text: {len(str(result_content))} chars")
+            if official_sdk_used:
+                print(f"[OFFICIAL-SDK] Using official {request.llm_provider.upper()} SDK")
+                print(f"[TEXT] Processing text-only analysis with official SDK")
+                
+                if request.llm_provider == "google":
+                    success, result_content, metadata = generate_text_with_official_gemini(
+                        prompt=full_prompt,
+                        model=request.model,
+                        disable_thinking=True
+                    )
+                    if not success:
+                        raise Exception(f"Google Gemini generation failed: {result_content}")
+                else:  # OpenAI
+                    success, result_content, metadata = generate_text_with_official_openai(
+                        prompt=full_prompt,
+                        model=request.model,
+                        temperature=0.3,
+                        max_tokens=4000
+                    )
+                    if not success:
+                        raise Exception(f"OpenAI generation failed: {result_content}")
+                
+                execution_time = time.time() - start_time
+                print(f"[OFFICIAL-SDK] Text reverse engineering successful: {len(result_content)} chars")
+                print(f"[OK] Code analysis completed in {execution_time:.2f}s")
+                
             else:
-                result_content = str(result)
-                print(f"[DEBUG] Using str(result): {len(str(result_content))} chars")
+                # Use LangChain fallback
+                result = llm.invoke(full_prompt)
+                execution_time = time.time() - start_time
+                
+                print(f"[OK] Code analysis completed in {execution_time:.2f}s")
+                
+                # Extract the content from the LLM response with proper LangChain AIMessage handling
+                result_content = None
+                
+                # For LangChain AIMessage, check content first, then text property
+                if hasattr(result, 'content') and result.content is not None and len(str(result.content)) > 0:
+                    result_content = str(result.content)
+                    print(f"[DEBUG] Using result.content: {len(result_content)} chars")
+                elif hasattr(result, 'text'):
+                    # result.text might be a method or property - handle both cases
+                    try:
+                        if hasattr(result.text, '__call__'):
+                            text_content = result.text()
+                            if text_content and len(str(text_content)) > 0:
+                                result_content = str(text_content)
+                                print(f"[DEBUG] Using result.text(): {len(result_content)} chars")
+                        else:
+                            result_content = str(result.text)
+                            print(f"[DEBUG] Using result.text property: {len(result_content)} chars")
+                    except Exception as e:
+                        print(f"[DEBUG] Error accessing result.text: {e}")
+                        pass
+                
+                # Fallback to string representation if no content found
+                if not result_content:
+                    result_content = str(result)
+                    print(f"[DEBUG] Using str(result) fallback: {len(result_content)} chars")
             
             # Check if the result is empty (0 tokens) - treat this as a failure
             if not result_content or len(str(result_content).strip()) == 0:
@@ -1753,7 +2283,7 @@ async def reverse_engineer_code(request: ReverseEngineerCodeRequest):
                 return ReverseEngineerCodeResponse(
                     success=True,
                     data=flattened_result,
-                    message=f"Code analysis completed successfully in {execution_time:.2f}s"
+                    message=f"Code analysis completed successfully in {execution_time:.2f}s using {request.llm_provider}"
                 )
                 
             except json.JSONDecodeError as parse_error:
