@@ -204,6 +204,22 @@ export function RightPanel() {
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Assistant Settings</h3>
                   
                   <div className="space-y-4">
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                      <h4 className="font-medium text-blue-900 mb-2 flex items-center">
+                        <Bot size={16} className="mr-2" />
+                        Aura Assistant
+                      </h4>
+                      <p className="text-sm text-blue-800 mb-3">
+                        Your AI-powered assistant for navigating the AuraV2 workflow and getting help with tasks.
+                      </p>
+                      <div className="text-xs text-blue-700 space-y-1">
+                        <div>• Ask questions about business briefs</div>
+                        <div>• Get guidance on workflow stages</div>
+                        <div>• Request help with AI assessments</div>
+                        <div>• Navigate between features</div>
+                      </div>
+                    </div>
+                    
                     <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                       <h4 className="font-medium text-gray-900 mb-2">AI Preferences</h4>
                       <div className="space-y-3">
@@ -234,6 +250,16 @@ export function RightPanel() {
                           <input type="checkbox" defaultChecked className="rounded" />
                         </div>
                       </div>
+                    </div>
+
+                    <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                      <h4 className="font-medium text-yellow-900 mb-2">📍 LLM Configuration</h4>
+                      <p className="text-sm text-yellow-800 mb-2">
+                        V1 module LLM settings have been moved to the main Settings page for better organization.
+                      </p>
+                      <p className="text-xs text-yellow-700">
+                        Navigate to Settings → V1 Module LLM Assignment to configure primary and backup LLMs for each module.
+                      </p>
                     </div>
                   </div>
                 </div>

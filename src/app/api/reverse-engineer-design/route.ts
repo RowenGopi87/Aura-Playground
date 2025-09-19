@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getReverseEngineeringProviders, getDefaultReverseEngineeringProviders } from '@/lib/reverse-engineering-settings';
 
 // Define the request schema
 const DesignReverseEngineerSchema = z.object({
@@ -15,7 +16,17 @@ const DesignReverseEngineerSchema = z.object({
   analysisLevel: z.enum(['story', 'epic', 'feature', 'initiative', 'business-brief']),
   extractUserFlows: z.boolean().default(true),
   includeAccessibility: z.boolean().default(true),
-  useRealLLM: z.boolean().default(false)
+  useRealLLM: z.boolean().default(false),
+  reverseEngineeringSettings: z.object({
+    design: z.object({
+      provider: z.string(),
+      model: z.string()
+    }),
+    code: z.object({
+      provider: z.string(),
+      model: z.string()
+    })
+  }).optional()
 });
 
 export async function POST(request: NextRequest) {
@@ -37,7 +48,8 @@ export async function POST(request: NextRequest) {
       analysisLevel, 
       extractUserFlows, 
       includeAccessibility,
-      useRealLLM
+      useRealLLM,
+      reverseEngineeringSettings
     } = validatedData;
 
     console.log('✅ Request validation passed');
@@ -70,7 +82,8 @@ export async function POST(request: NextRequest) {
       !!imageData,
       useRealLLM,
       imageData,
-      imageType
+      imageType,
+      reverseEngineeringSettings
     );
 
     console.log('✅ Design analysis completed successfully');
@@ -100,7 +113,11 @@ export async function POST(request: NextRequest) {
 }
 
 function buildDesignReverseEngineeringPrompt(analysisLevel: string): string {
-  return `You are an expert Product Owner with deep expertise in requirements engineering, user story creation, and visual design analysis. Your role is to reverse engineer visual designs into high-quality business requirements that follow the seven fundamental characteristics of excellent requirements.
+  return `**CRITICAL: YOU MUST RETURN VALID JSON ONLY**
+
+Your response must be a properly formatted JSON object with no additional text, explanations, or markdown formatting. Do not include code blocks, backticks, or any text outside the JSON structure.
+
+You are an expert Product Owner with deep expertise in requirements engineering, user story creation, and visual design analysis. Your role is to reverse engineer visual designs into high-quality business requirements that follow the seven fundamental characteristics of excellent requirements.
 
 🎯 **PRIMARY ROLE**: Acting as a Senior Product Owner, analyze visual designs and extract well-structured work items that drive business value and enable development teams to deliver exceptional user experiences.
 
@@ -176,13 +193,15 @@ VISUAL ELEMENTS TO ANALYZE:
 - Mobile responsiveness indicators
 - Accessibility features visible in design
 
-Your response must be a valid JSON object with the following structure based on analysis level:
+**JSON RESPONSE FORMAT REQUIREMENTS**:
 
-For Business Brief level:
+You MUST return ONLY a valid JSON object. Your entire response should be a single JSON object with no other text.
+
+For Business Brief level, return this EXACT structure:
 {
   "analysisDepth": "business-brief",
   "extractedInsights": "Detailed analysis of the business domain and strategic context extracted from design",
-  "designAnalysis": "Specific analysis of visual design patterns, user interface elements, and interaction design",
+  "designAnalysis": "Specific analysis of visual design patterns, user interface elements, and interaction design", 
   "userFlows": ["List of user workflows identified from design"],
   "accessibilityInsights": ["Accessibility considerations based on design elements"],
   "businessBrief": {
@@ -192,13 +211,61 @@ For Business Brief level:
     "businessObjective": "Primary business goals identified from design functionality",
     "quantifiableBusinessOutcomes": ["Specific measurable outcomes based on design capabilities"]
   },
-  "initiatives": [...], // If analysisLevel includes initiatives
-  "features": [...], // If analysisLevel includes features  
-  "epics": [...], // If analysisLevel includes epics
-  "stories": [...] // Always include stories
+  "initiatives": [
+    {
+      "id": "INIT-REV-001",
+      "title": "Initiative Title",
+      "description": "Initiative description",
+      "category": "user-experience",
+      "priority": "high",
+      "rationale": "Business rationale",
+      "acceptanceCriteria": ["Criteria 1", "Criteria 2"],
+      "businessValue": "Business value description",
+      "workflowLevel": "initiative"
+    }
+  ],
+  "features": [
+    {
+      "id": "FEAT-REV-001", 
+      "title": "Feature Title",
+      "description": "Feature description",
+      "category": "frontend",
+      "priority": "high",
+      "rationale": "Feature rationale", 
+      "acceptanceCriteria": ["Criteria 1", "Criteria 2"],
+      "businessValue": "Business value description",
+      "workflowLevel": "feature"
+    }
+  ],
+  "epics": [
+    {
+      "id": "EPIC-REV-001",
+      "title": "Epic Title", 
+      "description": "Epic description",
+      "category": "user-interface",
+      "priority": "high",
+      "rationale": "Epic rationale",
+      "acceptanceCriteria": ["Criteria 1", "Criteria 2"], 
+      "businessValue": "Business value description",
+      "workflowLevel": "epic"
+    }
+  ],
+  "stories": [
+    {
+      "id": "STORY-REV-001",
+      "title": "As a [user], I want [goal] so that [benefit]",
+      "description": "Story description",
+      "category": "user-interface", 
+      "priority": "high",
+      "rationale": "Story rationale",
+      "acceptanceCriteria": ["Given [context], When [action], Then [outcome]"],
+      "businessValue": "Business value description",
+      "workflowLevel": "story"
+    }
+  ]
 }
 
-For other levels, include only the appropriate work items based on hierarchy.
+**CRITICAL**: Return ONLY this JSON structure with actual analyzed content from the design. No additional text, explanations, or formatting.
 
 IMPORTANT: Base all extractions on ACTUAL visual design elements and interface patterns, not generic UI assumptions.`;
 }
@@ -256,7 +323,8 @@ VISUAL ANALYSIS INSTRUCTIONS:
 
 Focus on extracting meaningful business requirements that reflect the actual design implementation and user experience, not generic interface patterns.
 
-Provide your analysis as a valid JSON response following the specified structure.`;
+**CRITICAL OUTPUT REQUIREMENT**: 
+Respond with ONLY valid JSON following the exact structure provided in the system prompt. Do not include any explanatory text, markdown formatting, or code blocks. Your entire response should be parseable as JSON.`;
 }
 
 async function analyzeDesignWithLLM(
@@ -266,7 +334,8 @@ async function analyzeDesignWithLLM(
   hasImage: boolean,
   useRealLLM: boolean,
   imageData?: string,
-  imageType?: string
+  imageType?: string,
+  reverseEngineeringSettings?: any
 ): Promise<any> {
   try {
     console.log('🤖 Calling LLM for design analysis...');
@@ -274,7 +343,7 @@ async function analyzeDesignWithLLM(
     
     if (useRealLLM) {
       console.log('🔥 Using REAL LLM for design reverse engineering');
-      return await callRealLLMDesignAnalysis(systemPrompt, userPrompt, analysisLevel, hasImage, imageData, imageType);
+      return await callRealLLMDesignAnalysis(systemPrompt, userPrompt, analysisLevel, hasImage, imageData, imageType, reverseEngineeringSettings);
     } else {
       console.log('🎭 Using MOCK analysis logic');
       return await getMockDesignAnalysis(analysisLevel, hasImage);
@@ -301,45 +370,84 @@ async function callRealLLMDesignAnalysis(
   analysisLevel: string,
   hasImage: boolean,
   imageData?: string,
-  imageType?: string
+  imageType?: string,
+  reverseEngineeringSettings?: any,
+  maxRetries: number = 3
 ): Promise<any> {
-  console.log('🤖 Calling Real LLM for design analysis...');
+  console.log('🤖 Starting design analysis with retry mechanism...');
   
+  // Get configured providers from settings
+  let providers;
   try {
-    // Call the MCP Bridge Server for actual LLM processing
-    const response = await fetch('http://localhost:8000/reverse-engineer-design', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        systemPrompt,
-        userPrompt,
-        analysisLevel,
-        hasImage,
-        imageData,
-        imageType,
-        llm_provider: 'google', // Default to Google Gemini
-        model: 'gemini-2.5-pro'
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`MCP Bridge server responded with ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    if (result.success) {
-      return result.data;
-    } else {
-      throw new Error(result.error || 'Failed to analyze design via MCP Bridge');
-    }
-    
+    providers = getReverseEngineeringProviders('design', reverseEngineeringSettings);
+    console.log('🔧 Using configured reverse engineering providers for design:', providers.map(p => `${p.name} (${p.model})`).join(', '));
   } catch (error) {
-    console.error('❌ Error calling MCP Bridge server:', error);
-    throw error; // Re-throw to trigger fallback
+    console.warn('⚠️ Failed to load reverse engineering settings, using defaults:', error);
+    providers = getDefaultReverseEngineeringProviders();
   }
+
+  for (const providerConfig of providers) {
+    console.log(`🔄 Trying ${providerConfig.name} for design analysis...`);
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📡 ${providerConfig.name} attempt ${attempt}/${maxRetries}`);
+        
+        // Call the MCP Bridge Server for actual LLM processing
+        const response = await fetch(`${process.env.MCP_BRIDGE_URL || 'http://localhost:8000'}/reverse-engineer-design`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            systemPrompt,
+            userPrompt,
+            analysisLevel,
+            hasImage,
+            imageData,
+            imageType,
+            llm_provider: providerConfig.provider,
+            model: providerConfig.model
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`MCP Bridge server responded with ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.success) {
+          console.log(`✅ Success with ${providerConfig.name} on attempt ${attempt}`);
+          return {
+            ...result.data,
+            provider: providerConfig.name,
+            attempt: attempt,
+            usedFallback: providerConfig.name !== 'OpenAI'
+          };
+        } else {
+          throw new Error(result.error || `${providerConfig.name} API returned error`);
+        }
+        
+      } catch (error) {
+        console.error(`❌ ${providerConfig.name} attempt ${attempt} failed:`, error);
+        
+        // If this is the last attempt for this provider, continue to next provider
+        if (attempt === maxRetries) {
+          console.log(`🔄 ${providerConfig.name} failed after ${maxRetries} attempts, trying next provider...`);
+          break;
+        }
+        
+        // Exponential backoff: 1s, 2s, 4s
+        const backoffDelay = Math.pow(2, attempt - 1) * 1000;
+        console.log(`⏳ Waiting ${backoffDelay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+      }
+    }
+  }
+
+  // If all providers failed, throw error to fall back to mock
+  throw new Error('All LLM providers failed for design analysis');
 }
 
 async function getMockDesignAnalysis(analysisLevel: string, hasImage: boolean): Promise<any> {

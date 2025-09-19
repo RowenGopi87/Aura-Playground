@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { Version1Sidebar } from './components/v1-sidebar';
 import { Version1Header } from './components/v1-header';
 import { RightPanel } from '@/components/layout/right-panel';
+import { useSettingsInitialization } from '@/hooks/use-settings-initialization';
 
 interface Version1LayoutProps {
   children: ReactNode;
@@ -17,6 +18,9 @@ export default function Version1Layout({ children }: Version1LayoutProps) {
     sidebarCollapsed, 
     getSidebarWidth 
   } = useAppStore();
+  
+  // Initialize settings from environment variables
+  useSettingsInitialization();
   
   const sidebarWidth = getSidebarWidth();
   

@@ -18,6 +18,7 @@ import { useFeatureStore } from '@/store/feature-store';
 import { useEpicStore } from '@/store/epic-store';
 import { useStoryStore } from '@/store/story-store';
 import { useUseCaseStore } from '@/store/use-case-store';
+import { useSettingsStore } from '@/store/settings-store';
 import { notify } from '@/lib/notification-helper';
 import {
   AlertCircle,
@@ -96,6 +97,7 @@ export default function DesignPage() {
   const { addEpic, epics, clearEpics } = useEpicStore();
   const { addStory, stories, clearStories } = useStoryStore();
   const { addUseCase } = useUseCaseStore();
+  const { reverseEngineeringLLMSettings, getV1ModuleLLM } = useSettingsStore();
 
   // Design Generation State
   const [selectedTab, setSelectedTab] = useState<'figma' | 'work-item'>('work-item');
@@ -736,7 +738,8 @@ export default function DesignPage() {
           analysisLevel: reverseConfig.analysisLevel,
           extractUserFlows: reverseConfig.extractUserFlows,
           includeAccessibility: reverseConfig.includeAccessibility,
-          useRealLLM: useRealLLMForReverse
+          useRealLLM: useRealLLMForReverse,
+          reverseEngineeringSettings: reverseEngineeringLLMSettings
         }),
       });
 
@@ -1028,6 +1031,15 @@ ${designPrompt || 'Focus on user experience, accessibility, and modern design pa
         }
       }
 
+      // Get V1 module LLM settings for design generation
+      const primaryLLM = getV1ModuleLLM('design', 'primary');
+      const backupLLM = getV1ModuleLLM('design', 'backup');
+      
+      console.log('[DESIGN] Using V1 LLM settings:', {
+        primary: `${primaryLLM.provider} - ${primaryLLM.model}`,
+        backup: `${backupLLM.provider} - ${backupLLM.model}`
+      });
+
       // Call enhanced API with retry mechanism (Google -> OpenAI fallback)
       const response = await fetch('/api/generate-design-code', {
         method: 'POST',
@@ -1042,8 +1054,13 @@ ${designPrompt || 'Focus on user experience, accessibility, and modern design pa
           includeAccessibility: true,
           imageData: imageData || undefined,
           imageType: imageType || undefined,
-          preferredProvider: 'google', // Always try Google first
-          useRealLLM: useRealLLMForGeneration
+          preferredProvider: 'google', // Legacy fallback preference
+          useRealLLM: useRealLLMForGeneration,
+          // V1 Module LLM Settings
+          primaryProvider: primaryLLM.provider,
+          primaryModel: primaryLLM.model,
+          backupProvider: backupLLM.provider,
+          backupModel: backupLLM.model
         }),
       });
 

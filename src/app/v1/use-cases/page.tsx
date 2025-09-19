@@ -283,7 +283,7 @@ export default function Version1IdeasPage() {
     isLoading: storeLoading, 
     error: storeError 
   } = useUseCaseStore();
-  const { llmSettings, validateSettings } = useSettingsStore();
+  const { llmSettings, validateSettings, getV1ModuleLLM, validateV1ModuleSettings } = useSettingsStore();
   const { addGeneratedInitiatives } = useInitiativeStore();
   const { addNotification } = useNotificationStore();
   
@@ -983,6 +983,83 @@ export default function Version1IdeasPage() {
     setGeneratedInitiativesForAssignment([]);
   };
 
+  // Helper function to try LLM generation with fallback
+  const tryLLMWithFallback = async (apiEndpoint: string, requestData: any, moduleName: string) => {
+    // First try primary LLM
+    try {
+      if (!validateV1ModuleSettings('use-cases')) {
+        throw new Error('Please configure LLM settings in the V1 Settings panel');
+      }
+
+      const primaryLLMSettings = getV1ModuleLLM('use-cases', 'primary');
+      console.log(`🔍 Trying primary LLM for ${moduleName}:`, primaryLLMSettings.provider, primaryLLMSettings.model);
+
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...requestData,
+          llmSettings: primaryLLMSettings,
+          llmSource: 'primary'
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Primary LLM failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        return result;
+      }
+      throw new Error(result.error || 'Primary LLM generation failed');
+
+    } catch (primaryError: any) {
+      console.warn(`❌ Primary LLM failed for ${moduleName}:`, primaryError);
+      
+      // Fallback to backup LLM
+      try {
+        const backupLLMSettings = getV1ModuleLLM('use-cases', 'backup');
+        console.log(`🔄 Falling back to backup LLM for ${moduleName}:`, backupLLMSettings.provider, backupLLMSettings.model);
+
+        const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...requestData,
+            llmSettings: backupLLMSettings,
+            llmSource: 'backup'
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Backup LLM failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (result.success) {
+          // Show notification that backup was used
+          addNotification({
+            title: 'Backup LLM Used',
+            message: `⚠️ Primary LLM failed, used backup (${backupLLMSettings.provider}) for ${moduleName}`,
+            type: 'warning',
+            autoClose: true
+          });
+          return result;
+        }
+        throw new Error(result.error || 'Backup LLM generation failed');
+
+      } catch (backupError: any) {
+        console.error(`❌ Both primary and backup LLMs failed for ${moduleName}:`, backupError);
+        throw new Error(`Both primary and backup LLMs failed. Primary: ${primaryError.message}. Backup: ${backupError.message}`);
+      }
+    }
+  };
+
   const handleGenerateInitiatives = async (useCaseId: string) => {
     const useCase = useCases.find(uc => uc.id === useCaseId);
     if (!useCase) {
@@ -1011,38 +1088,18 @@ export default function Version1IdeasPage() {
     });
 
     try {
-      if (!validateSettings()) {
-        throw new Error('Please configure your LLM provider and API key in Settings');
-      }
-
       console.log(`🔍 Generating initiatives for: ${useCase.title} (${useCaseId})`);
 
-      const response = await fetch('/api/generate-initiatives', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const requestData = {
+        businessBriefId: useCase.id,
+        businessBriefData: {
+          title: useCase.title,
+          businessObjective: useCase.businessObjective || useCase.description,
+          quantifiableBusinessOutcomes: useCase.quantifiableBusinessOutcomes || '',
         },
-        body: JSON.stringify({
-          businessBriefId: useCase.id,
-          businessBriefData: {
-            title: useCase.title,
-            businessObjective: useCase.businessObjective || useCase.description,
-            quantifiableBusinessOutcomes: useCase.quantifiableBusinessOutcomes || '',
-          },
-          llmSettings: llmSettings,
-        }),
-      });
+      };
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate initiatives');
-      }
-
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Initiatives generation failed');
-      }
+      const result = await tryLLMWithFallback('/api/generate-initiatives', requestData, 'Use Cases');
 
       const { initiatives } = result.data;
       const savedInitiatives = addGeneratedInitiatives(useCaseId, initiatives);

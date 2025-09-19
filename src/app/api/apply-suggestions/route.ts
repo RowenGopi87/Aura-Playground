@@ -160,7 +160,7 @@ async function applySuggestionsWithLLM(params: {
   try {
     console.log('[APPLY API] 🔗 Calling MCP Bridge server for suggestion implementation...');
     
-    const response = await fetch('http://localhost:8000/apply-suggestions', {
+    const response = await fetch(`${process.env.MCP_BRIDGE_URL || 'http://localhost:8000'}/apply-suggestions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

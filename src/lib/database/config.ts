@@ -1,66 +1,18 @@
-import dotenv from 'dotenv';
+import { DATABASE_CONFIG, RAG_CONFIG, validateConfiguration } from '../config/environment';
 
-// Load environment variables
-dotenv.config();
+// Re-export the centralized database configuration
+export { DATABASE_CONFIG };
 
-// Database configuration
-export const DATABASE_CONFIG = {
-  host: process.env.AURA_DB_HOST || 'localhost',
-  port: parseInt(process.env.AURA_DB_PORT || '3306'),
-  user: process.env.AURA_DB_USER || 'aura_user',
-  password: process.env.AURA_DB_PASSWORD || '',
-  database: process.env.AURA_DB_NAME || 'aura_playground',
-  maxPoolSize: parseInt(process.env.AURA_DB_MAX_POOL_SIZE || '10'),
-  ssl: process.env.AURA_DB_SSL === 'true'
-};
-
-// Embedding configuration
+// Legacy embedding configuration for backward compatibility
 export const EMBEDDING_CONFIG = {
-  enabled: !!(process.env.AURA_EMBEDDING_API_KEY || process.env.OPENAI_API_KEY),
-  provider: process.env.AURA_EMBEDDING_PROVIDER || 'openai',
-  apiKey: process.env.AURA_EMBEDDING_API_KEY || process.env.OPENAI_API_KEY || '',
-  model: process.env.AURA_EMBEDDING_MODEL || 'text-embedding-3-small'
+  enabled: !!(RAG_CONFIG.embedding.apiKey),
+  provider: RAG_CONFIG.embedding.provider,
+  apiKey: RAG_CONFIG.embedding.apiKey,
+  model: RAG_CONFIG.embedding.model
 };
 
-// Configuration validation
-export interface ConfigValidationResult {
-  isValid: boolean;
-  errors: string[];
-  warnings: string[];
-}
-
-export function validateConfig(): ConfigValidationResult {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  // Validate required database fields
-  if (!DATABASE_CONFIG.host) {
-    errors.push('AURA_DB_HOST environment variable is required');
-  }
-  if (!DATABASE_CONFIG.user) {
-    errors.push('AURA_DB_USER environment variable is required');
-  }
-  if (!DATABASE_CONFIG.password) {
-    errors.push('AURA_DB_PASSWORD environment variable is required');
-  }
-  if (!DATABASE_CONFIG.database) {
-    errors.push('AURA_DB_NAME environment variable is required');
-  }
-
-  // Check for optional configurations and add warnings if missing
-  if (!EMBEDDING_CONFIG.apiKey) {
-    warnings.push('AURA_EMBEDDING_API_KEY not set - RAG functionality will be limited');
-  }
-  if (DATABASE_CONFIG.maxPoolSize > 50) {
-    warnings.push('High max pool size detected - consider reducing for better resource management');
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors,
-    warnings
-  };
-}
+// Re-export validation function
+export const validateConfig = validateConfiguration;
 
 // Embedding dimensions for different models
 export const EMBEDDING_DIMENSIONS = {
@@ -78,3 +30,4 @@ export const OPENAI_MODELS = {
 // Export types
 export type DatabaseConfig = typeof DATABASE_CONFIG;
 export type EmbeddingConfig = typeof EMBEDDING_CONFIG;
+export type { ConfigValidationResult } from '../config/environment';

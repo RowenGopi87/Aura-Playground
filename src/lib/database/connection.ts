@@ -39,7 +39,7 @@ export class DatabaseConnection {
         port: DATABASE_CONFIG.port,
         user: DATABASE_CONFIG.user,
         password: DATABASE_CONFIG.password,
-        database: DATABASE_CONFIG.database,
+        database: DATABASE_CONFIG.name,
         waitForConnections: true,
         connectionLimit: DATABASE_CONFIG.maxPoolSize,
         queueLimit: 0,

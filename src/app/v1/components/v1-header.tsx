@@ -29,7 +29,7 @@ export function Version1Header() {
         
         <NotificationDropdown />
         
-        <Link href="/settings">
+        <Link href="/v1/settings">
           <Button variant="ghost" size="sm" className="p-2">
             <Settings size={18} />
           </Button>

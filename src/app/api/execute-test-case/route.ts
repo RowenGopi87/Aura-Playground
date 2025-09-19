@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Forward request to MCP server
-    const response = await fetch('http://localhost:8000/execute-test-case', {
+    const response = await fetch(`${process.env.MCP_BRIDGE_URL || 'http://localhost:8000'}/execute-test-case`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   // Health check endpoint
   try {
-    const response = await fetch('http://localhost:8000/health');
+    const response = await fetch(`${process.env.MCP_BRIDGE_URL || 'http://localhost:8000'}/health`);
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {

@@ -16,6 +16,7 @@ import { useFeatureStore } from '@/store/feature-store';
 import { useEpicStore } from '@/store/epic-store';
 import { useStoryStore } from '@/store/story-store';
 import { useUseCaseStore } from '@/store/use-case-store';
+import { useSettingsStore } from '@/store/settings-store';
 import { notify } from '@/lib/notification-helper';
 import {
   BrainCircuit,
@@ -128,6 +129,7 @@ export default function CodePage() {
   const { addEpic, epics } = useEpicStore();
   const { addStory, stories } = useStoryStore();
   const { addUseCase, useCases: businessBriefs } = useUseCaseStore();
+  const { reverseEngineeringLLMSettings, getV1ModuleLLM } = useSettingsStore();
 
   // Portfolio state (like V1 Design)
   const [portfolios, setPortfolios] = useState<any[]>([]);
@@ -208,60 +210,37 @@ export default function CodePage() {
 
   // Combine all work items from stores
   const allWorkItems = React.useMemo(() => {
-    const combinedItems: Array<{
-      id: string;
-      title: string;
-      description: string;
-      type: string;
-      priority: string;
-      status: string;
-    }> = [];
+    const combinedItems: Array<any> = [];
     
-    // Add initiatives
+    // Add initiatives (with portfolioId and businessBriefId for grouping)
     initiatives.forEach(item => {
       combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'initiative',
-        priority: item.priority,
-        status: item.status
+        ...item,  // Include all fields from initiative
+        type: 'initiative'
       });
     });
     
     // Add features
     features.forEach(item => {
       combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'feature',
-        priority: item.priority,
-        status: item.status
+        ...item,  // Include all fields from feature
+        type: 'feature'
       });
     });
     
     // Add epics
     epics.forEach(item => {
       combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'epic',
-        priority: item.priority,
-        status: item.status
+        ...item,  // Include all fields from epic
+        type: 'epic'
       });
     });
     
     // Add stories
     stories.forEach(item => {
       combinedItems.push({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        type: 'story',
-        priority: item.priority,
-        status: item.status
+        ...item,  // Include all fields from story
+        type: 'story'
       });
     });
     
@@ -717,6 +696,19 @@ Framework: ${framework === 'none' ? 'Best choice for this project' : framework}`
         hasFigmaUrl: !!figmaUrl
       });
 
+      // Get V1 module LLM settings for code generation
+      const primaryLLM = getV1ModuleLLM('code', 'primary');
+      const backupLLM = getV1ModuleLLM('code', 'backup');
+      
+      console.log('[CODE] 🔍 DEBUG: V1 LLM settings retrieved:', {
+        primary: primaryLLM,
+        backup: backupLLM,
+        primaryProvider: primaryLLM.provider,
+        primaryModel: primaryLLM.model,
+        backupProvider: backupLLM.provider,
+        backupModel: backupLLM.model
+      });
+
       // Call the API
       const response = await fetch('/api/generate-code', {
         method: 'POST',
@@ -735,7 +727,12 @@ Framework: ${framework === 'none' ? 'Best choice for this project' : framework}`
           imageData,
           imageType,
           figmaUrl: selectedTab === 'figma' ? figmaUrl : null,
-          selectedTab
+          selectedTab,
+          // V1 Module LLM Settings
+          primaryProvider: primaryLLM.provider,
+          primaryModel: primaryLLM.model,
+          backupProvider: backupLLM.provider,
+          backupModel: backupLLM.model
         }),
       });
 
@@ -1937,7 +1934,8 @@ export default ${workItem?.title.replace(/\\s+/g, '')}Component;`;
           analysisLevel: reverseConfig.analysisLevel,
           includeTests: reverseConfig.includeTests,
           includeDocumentation: reverseConfig.includeDocumentation,
-          useRealLLM: useRealLLMForCode  // Pass the Real LLM flag
+          useRealLLM: useRealLLMForCode,  // Pass the Real LLM flag
+          reverseEngineeringSettings: reverseEngineeringLLMSettings
         }),
       });
 

@@ -12,6 +12,11 @@ const GenerateCodeSchema = z.object({
   additionalRequirements: z.string().optional(),
   imageData: z.string().optional(),
   imageType: z.string().optional(),
+  // V1 Module LLM Settings
+  primaryProvider: z.string().optional(),
+  primaryModel: z.string().optional(),
+  backupProvider: z.string().optional(),
+  backupModel: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -39,7 +44,15 @@ export async function POST(request: NextRequest) {
     console.log('[CODE API] ✅ Request validation passed');
     console.log('[CODE API] 🔍 Generating code for:', body.codeType, body.language);
 
-    const { prompt, workItemId, codeType, language, framework, designReference, additionalRequirements } = validatedData.data;
+    const { prompt, workItemId, codeType, language, framework, designReference, additionalRequirements, primaryProvider, primaryModel, backupProvider, backupModel } = validatedData.data;
+    
+    console.log('[CODE API] 🔍 DEBUG: Received LLM settings from frontend:', {
+      primaryProvider,
+      primaryModel,
+      backupProvider,
+      backupModel,
+      hasSettings: !!(primaryProvider && primaryModel)
+    });
 
     // Build comprehensive system prompt for code generation
     const systemPrompt = language === 'html-single' ? 
@@ -140,16 +153,18 @@ Please generate complete, working code that implements this functionality.`;
     console.log('[CODE API] 📋 User prompt length:', userPrompt.length);
     console.log('[CODE API] 🤖 Calling LLM service for code generation...');
 
-    // Call the MCP Bridge server for code generation
-    const result = await generateCodeWithLLM({
+    // Call the MCP Bridge server for code generation with provider prioritization
+    const result = await generateCodeWithLLMAndFallback({
       systemPrompt,
       userPrompt,
       codeType,
       language,
       framework,
       workItemId,
-      llm_provider: 'google',
-      model: 'gemini-2.5-pro'
+      primaryProvider,
+      primaryModel,
+      backupProvider,
+      backupModel
     });
 
     console.log('[CODE API] ✅ Code generated successfully');
@@ -170,50 +185,119 @@ Please generate complete, working code that implements this functionality.`;
   }
 }
 
-async function generateCodeWithLLM(params: {
+async function generateCodeWithLLMAndFallback(params: {
   systemPrompt: string;
   userPrompt: string;
   codeType: string;
   language: string;
   framework: string;
   workItemId: string;
-  llm_provider: string;
-  model: string;
-}) {
-  try {
-    console.log('[CODE API] 🔗 Calling MCP Bridge server...');
-    
-    const response = await fetch('http://localhost:8000/generate-code', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params),
+  primaryProvider?: string;
+  primaryModel?: string;
+  backupProvider?: string;
+  backupModel?: string;
+}, maxRetries: number = 3) {
+  console.log('[CODE API] 🤖 Starting code generation with retry mechanism...');
+  
+  // Use user's V1 module settings if provided, otherwise fall back to defaults
+  const providers = [];
+  
+  if (params.primaryProvider && params.primaryModel) {
+    providers.push({ 
+      name: params.primaryProvider === 'google' ? 'Google' : 'OpenAI', 
+      provider: params.primaryProvider, 
+      model: params.primaryModel 
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.log('[CODE API] ❌ MCP Bridge server error:', response.status, errorText);
-      throw new Error(`MCP Bridge server error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    if (result.success && result.data) {
-      console.log('[CODE API] ✅ Received successful response from MCP Bridge');
-      return result.data;
-    } else {
-      console.log('[CODE API] ❌ Error from MCP Bridge server:', result.error);
-      throw new Error(result.error || 'Failed to generate code via MCP Bridge');
-    }
-
-  } catch (error) {
-    console.error('[CODE API] ❌ Error calling MCP Bridge server:', error);
-    console.log('[CODE API] 🔄 Falling back to mock response for development...');
-    
-    // Enhanced fallback response
-    return generateEnhancedMockCode(params.codeType, params.language, params.workItemId);
+    console.log(`[CODE API] 🎯 Using user's primary provider: ${params.primaryProvider} - ${params.primaryModel}`);
   }
+  
+  if (params.backupProvider && params.backupModel) {
+    providers.push({ 
+      name: params.backupProvider === 'google' ? 'Google' : 'OpenAI', 
+      provider: params.backupProvider, 
+      model: params.backupModel 
+    });
+    console.log(`[CODE API] 🔄 Using user's backup provider: ${params.backupProvider} - ${params.backupModel}`);
+  }
+  
+  // If no user settings provided, use defaults
+  if (providers.length === 0) {
+    providers.push(
+      { name: 'OpenAI', provider: 'openai', model: 'gpt-4o' },
+      { name: 'Google', provider: 'google', model: 'gemini-2.5-pro' }
+    );
+    console.log('[CODE API] ⚠️ No user LLM settings provided, using default providers');
+  }
+
+  for (const providerConfig of providers) {
+    console.log(`[CODE API] 🔄 Trying ${providerConfig.name} provider...`);
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[CODE API] 📡 ${providerConfig.name} attempt ${attempt}/${maxRetries}`);
+        
+        // Call the MCP Bridge Server for actual LLM processing
+        const response = await fetch(`${process.env.MCP_BRIDGE_URL || 'http://localhost:8000'}/generate-code`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            systemPrompt: params.systemPrompt,
+            userPrompt: params.userPrompt,
+            codeType: params.codeType,
+            language: params.language,
+            framework: params.framework,
+            workItemId: params.workItemId,
+            llm_provider: providerConfig.provider,
+            model: providerConfig.model
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`MCP Bridge server responded with ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.success) {
+          console.log(`[CODE API] ✅ Success with ${providerConfig.name} on attempt ${attempt}`);
+          return {
+            ...result.data,
+            provider: providerConfig.name,
+            attempt: attempt,
+            usedFallback: providerConfig.name !== 'OpenAI'
+          };
+        } else {
+          throw new Error(result.error || `${providerConfig.name} API returned error`);
+        }
+        
+      } catch (error) {
+        console.error(`[CODE API] ❌ ${providerConfig.name} attempt ${attempt} failed:`, error);
+        
+        // If this is the last attempt for this provider, continue to next provider
+        if (attempt === maxRetries) {
+          console.log(`[CODE API] 🔄 ${providerConfig.name} failed after ${maxRetries} attempts, trying next provider...`);
+          break;
+        }
+        
+        // Exponential backoff: 1s, 2s, 4s
+        const backoffDelay = Math.pow(2, attempt - 1) * 1000;
+        console.log(`[CODE API] ⏳ Waiting ${backoffDelay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+      }
+    }
+  }
+
+  // If all providers failed, fall back to enhanced mock
+  console.log('[CODE API] 🔄 All providers failed - falling back to enhanced mock response...');
+  
+  return {
+    ...generateEnhancedMockCode(params.codeType, params.language, params.workItemId),
+    provider: 'Mock',
+    fallbackReason: 'All LLM providers temporarily unavailable - using enhanced mock',
+    usedFallback: true
+  };
 }
 
 function generateEnhancedMockCode(codeType: string, language: string, workItemId: string) {

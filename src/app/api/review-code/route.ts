@@ -140,7 +140,7 @@ async function reviewCodeWithLLM(params: {
   try {
     console.log('[REVIEW API] 🔗 Calling MCP Bridge server for review...');
     
-    const response = await fetch('http://localhost:8000/review-code', {
+    const response = await fetch(`${process.env.MCP_BRIDGE_URL || 'http://localhost:8000'}/review-code`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

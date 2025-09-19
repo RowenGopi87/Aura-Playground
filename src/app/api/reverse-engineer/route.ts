@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getReverseEngineeringProviders, getDefaultReverseEngineeringProviders } from '@/lib/reverse-engineering-settings';
 
 // Define the request schema
 const ReverseEngineerSchema = z.object({
@@ -13,7 +14,17 @@ const ReverseEngineerSchema = z.object({
   analysisLevel: z.enum(['story', 'epic', 'feature', 'initiative', 'business-brief']),
   includeTests: z.boolean().default(true),
   includeDocumentation: z.boolean().default(true),
-  useRealLLM: z.boolean().default(false)  // Add Real LLM flag
+  useRealLLM: z.boolean().default(false),  // Add Real LLM flag
+  reverseEngineeringSettings: z.object({
+    design: z.object({
+      provider: z.string(),
+      model: z.string()
+    }),
+    code: z.object({
+      provider: z.string(),
+      model: z.string()
+    })
+  }).optional()
 });
 
 export async function POST(request: NextRequest) {
@@ -33,7 +44,8 @@ export async function POST(request: NextRequest) {
       analysisLevel, 
       includeTests, 
       includeDocumentation,
-      useRealLLM 
+      useRealLLM,
+      reverseEngineeringSettings
     } = validatedData;
 
     console.log('✅ Request validation passed');
@@ -61,9 +73,11 @@ export async function POST(request: NextRequest) {
     const reverseEngineeredItems = await analyzeCodeWithLLM(
       systemPrompt, 
       userPrompt, 
+      codeContent,
       analysisLevel,
       codeContent.length,
-      useRealLLM  // Pass the Real LLM flag
+      useRealLLM,  // Pass the Real LLM flag
+      reverseEngineeringSettings
     );
 
     console.log('✅ Code analysis completed successfully');
@@ -232,9 +246,11 @@ function getFileType(filename: string): string {
 async function analyzeCodeWithLLM(
   systemPrompt: string,
   userPrompt: string,
+  codeContent: string,
   analysisLevel: string,
   codeLength: number,
-  useRealLLM: boolean = false
+  useRealLLM: boolean = false,
+  reverseEngineeringSettings?: any
 ): Promise<any> {
   try {
     console.log('🤖 Calling LLM for code analysis...', { useRealLLM, analysisLevel });
@@ -244,33 +260,64 @@ async function analyzeCodeWithLLM(
       console.log('🔥 Using Real LLM for code reverse engineering...');
       
       try {
-        const response = await fetch('http://localhost:8000/reverse-engineer-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            systemPrompt,
-            userPrompt,
-            analysisLevel,
-            codeLength,
-            llm_provider: 'google',
-            model: 'gemini-2.5-pro'
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`MCP Bridge server responded with ${response.status}`);
+        // Get configured providers from settings
+        let providers;
+        try {
+          providers = getReverseEngineeringProviders('code', reverseEngineeringSettings);
+          console.log('🔧 Using configured reverse engineering providers for code:', providers.map(p => `${p.name} (${p.model})`).join(', '));
+        } catch (error) {
+          console.warn('⚠️ Failed to load reverse engineering settings, using defaults:', error);
+          providers = getDefaultReverseEngineeringProviders();
         }
 
-        const result = await response.json();
+        let lastError: Error | null = null;
+
+        for (const providerConfig of providers) {
+          try {
+            console.log(`🔄 Trying ${providerConfig.name} for code reverse engineering...`);
+            
+            const response = await fetch(`${process.env.MCP_BRIDGE_URL || 'http://localhost:8000'}/reverse-engineer-code`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                systemPrompt,
+                userPrompt,
+                code: codeContent,
+                analysisLevel,
+                codeLength,
+                llm_provider: providerConfig.provider,
+                model: providerConfig.model
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`MCP Bridge server responded with ${response.status}`);
+            }
+
+            const result = await response.json();
+            
+            if (result.success && result.data) {
+              console.log(`✅ Real LLM analysis completed successfully with ${providerConfig.name}`);
+              return {
+                ...result.data,
+                provider: providerConfig.name,
+                usedFallback: providerConfig.name !== 'OpenAI'
+              };
+            } else {
+              throw new Error(result.error || `${providerConfig.name} analysis failed`);
+            }
+            
+          } catch (providerError) {
+            console.error(`❌ ${providerConfig.name} analysis failed:`, providerError);
+            lastError = providerError instanceof Error ? providerError : new Error(String(providerError));
+          }
+        }
         
-        if (result.success && result.data) {
-          console.log('✅ Real LLM analysis completed successfully');
-          return result.data;
-        } else {
-          throw new Error(result.error || 'Real LLM analysis failed');
-        }
+        // If all providers failed, throw the last error
+        throw lastError || new Error('All LLM providers failed');
+        
       } catch (llmError) {
         console.error('❌ Real LLM analysis failed, falling back to mock:', llmError);
         // Fall through to mock analysis below

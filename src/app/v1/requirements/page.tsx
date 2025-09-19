@@ -61,7 +61,7 @@ export default function RequirementsPage() {
   const { features, addGeneratedFeatures, getFeaturesByInitiative } = useFeatureStore();
   const { epics, addGeneratedEpics, getEpicsByFeature } = useEpicStore();
   const { stories, addGeneratedStories, getStoriesByEpic } = useStoryStore();
-  const { llmSettings, validateSettings } = useSettingsStore();
+  const { llmSettings, validateSettings, getV1ModuleLLM, validateV1ModuleSettings } = useSettingsStore();
   
   // State management - Start with everything collapsed
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set()); // Empty = all collapsed
@@ -481,6 +481,77 @@ export default function RequirementsPage() {
       await handleGenerateStories(item.id);
     }
     // You can expand this to call a dedicated enrich endpoint if needed
+  };
+
+  // Helper function to try LLM generation with fallback for Requirements module
+  const tryLLMWithFallback = async (apiEndpoint: string, requestData: any, moduleName: string) => {
+    // First try primary LLM
+    try {
+      if (!validateV1ModuleSettings('requirements')) {
+        throw new Error('Please configure LLM settings in the V1 Settings panel');
+      }
+
+      const primaryLLMSettings = getV1ModuleLLM('requirements', 'primary');
+      console.log(`🔍 Trying primary LLM for ${moduleName}:`, primaryLLMSettings.provider, primaryLLMSettings.model);
+
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...requestData,
+          llmSettings: primaryLLMSettings,
+          llmSource: 'primary'
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Primary LLM failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        return result;
+      }
+      throw new Error(result.error || 'Primary LLM generation failed');
+
+    } catch (primaryError: any) {
+      console.warn(`❌ Primary LLM failed for ${moduleName}:`, primaryError);
+      
+      // Fallback to backup LLM
+      try {
+        const backupLLMSettings = getV1ModuleLLM('requirements', 'backup');
+        console.log(`🔄 Falling back to backup LLM for ${moduleName}:`, backupLLMSettings.provider, backupLLMSettings.model);
+
+        const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...requestData,
+            llmSettings: backupLLMSettings,
+            llmSource: 'backup'
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Backup LLM failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (result.success) {
+          console.log(`⚠️ Used backup LLM (${backupLLMSettings.provider}) for ${moduleName}`);
+          return result;
+        }
+        throw new Error(result.error || 'Backup LLM generation failed');
+
+      } catch (backupError: any) {
+        console.error(`❌ Both primary and backup LLMs failed for ${moduleName}:`, backupError);
+        throw new Error(`Both primary and backup LLMs failed. Primary: ${primaryError.message}. Backup: ${backupError.message}`);
+      }
+    }
   };
 
   // AI Generation functions

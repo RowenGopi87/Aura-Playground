@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { RightPanel } from './right-panel';
+import { useSettingsInitialization } from '@/hooks/use-settings-initialization';
 import { ResizeHandle } from '@/components/ui/resize-handle';
 
 interface LayoutProps {
@@ -24,6 +25,9 @@ export function Layout({ children }: LayoutProps) {
     getRightPanelWidth,
     setRightPanelWidth
   } = useAppStore();
+  
+  // Initialize settings from environment variables
+  useSettingsInitialization();
   
   const sidebarWidth = getSidebarWidth();
   const rightPanelWidth = getRightPanelWidth();

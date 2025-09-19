@@ -105,7 +105,7 @@ export default function TestCasesPage() {
   const { epics, getEpicsByFeature } = useEpicStore();
   const { stories, getStoriesByEpic } = useStoryStore();
   const { useCases } = useUseCaseStore();
-  const { llmSettings, validateSettings } = useSettingsStore();
+  const { llmSettings, validateSettings, getV1ModuleLLM, validateV1ModuleSettings } = useSettingsStore();
   const { 
     testCases, 
     addTestCase, 
@@ -693,6 +693,77 @@ Return a JSON array of test cases with this exact structure:
 Generate comprehensive test cases that thoroughly validate the ${currentLevel} within the context of the provided hierarchy.`;
   };
 
+  // Helper function to try LLM generation with fallback for Test Cases module
+  const tryLLMWithFallback = async (apiEndpoint: string, requestData: any, moduleName: string) => {
+    // First try primary LLM
+    try {
+      if (!validateV1ModuleSettings('test-cases')) {
+        throw new Error('Please configure LLM settings in the V1 Settings panel');
+      }
+
+      const primaryLLMSettings = getV1ModuleLLM('test-cases', 'primary');
+      console.log(`🔍 Trying primary LLM for ${moduleName}:`, primaryLLMSettings.provider, primaryLLMSettings.model);
+
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...requestData,
+          llmSettings: primaryLLMSettings,
+          llmSource: 'primary'
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Primary LLM failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        return result;
+      }
+      throw new Error(result.error || 'Primary LLM generation failed');
+
+    } catch (primaryError: any) {
+      console.warn(`❌ Primary LLM failed for ${moduleName}:`, primaryError);
+      
+      // Fallback to backup LLM
+      try {
+        const backupLLMSettings = getV1ModuleLLM('test-cases', 'backup');
+        console.log(`🔄 Falling back to backup LLM for ${moduleName}:`, backupLLMSettings.provider, backupLLMSettings.model);
+
+        const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...requestData,
+            llmSettings: backupLLMSettings,
+            llmSource: 'backup'
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Backup LLM failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (result.success) {
+          console.log(`⚠️ Used backup LLM (${backupLLMSettings.provider}) for ${moduleName}`);
+          return result;
+        }
+        throw new Error(result.error || 'Backup LLM generation failed');
+
+      } catch (backupError: any) {
+        console.error(`❌ Both primary and backup LLMs failed for ${moduleName}:`, backupError);
+        throw new Error(`Both primary and backup LLMs failed. Primary: ${primaryError.message}. Backup: ${backupError.message}`);
+      }
+    }
+  };
+
   // Execute test case generation
   const executeTestCaseGeneration = async () => {
     if (!selectedWorkItemForGeneration) return;
@@ -804,60 +875,25 @@ Generate comprehensive test cases that thoroughly validate the ${currentLevel} w
 
       // Real LLM integration
       // Check if settings are valid
-      if (!validateSettings()) {
-        throw new Error('Please configure your LLM provider and API key in Settings');
-      }
-
-      // Validate settings via API
-      const settingsResponse = await fetch('/api/settings/validate', {
-        headers: {
-          'x-llm-provider': llmSettings.provider,
-          'x-llm-model': llmSettings.model,
-          'x-llm-api-key': llmSettings.apiKey,
-          'x-llm-temperature': llmSettings.temperature?.toString() || '0.7',
-          'x-llm-max-tokens': llmSettings.maxTokens?.toString() || '4000',
+      // Use new LLM service with fallback
+      const requestData = {
+        workItemId: selectedWorkItemForGeneration.id,
+        workItemType: selectedWorkItemForGeneration.workflowLevel,
+        workItemData: {
+          title: selectedWorkItemForGeneration.title,
+          description: selectedWorkItemForGeneration.description,
+          rationale: selectedWorkItemForGeneration.rationale,
+          businessValue: selectedWorkItemForGeneration.businessValue,
+          acceptanceCriteria: selectedWorkItemForGeneration.acceptanceCriteria,
         },
-      });
-      
-      if (!settingsResponse.ok) {
-        throw new Error('Please configure LLM settings in the Settings page first');
-      }
+        contextData: context,
+        testType: generateFormData.testType,
+        includeNegative: generateFormData.includeNegative,
+        includeEdge: generateFormData.includeEdge,
+      };
 
-      const { isValid, settings } = await settingsResponse.json();
-      if (!isValid) {
-        throw new Error('Please configure your LLM provider and API key in Settings');
-      }
-
-      // Generate test cases using the configured LLM
-      const response = await fetch('/api/generate-test-cases', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          workItemId: selectedWorkItemForGeneration.id,
-          workItemType: selectedWorkItemForGeneration.workflowLevel,
-          workItemData: {
-            title: selectedWorkItemForGeneration.title,
-            description: selectedWorkItemForGeneration.description,
-            rationale: selectedWorkItemForGeneration.rationale,
-            businessValue: selectedWorkItemForGeneration.businessValue,
-            acceptanceCriteria: selectedWorkItemForGeneration.acceptanceCriteria,
-          },
-          contextData: context,
-          testType: generateFormData.testType,
-          includeNegative: generateFormData.includeNegative,
-          includeEdge: generateFormData.includeEdge,
-          llmSettings: settings,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate test cases');
-      }
-
-      const { data } = await response.json();
+      const result = await tryLLMWithFallback('/api/generate-test-cases', requestData, 'Test Cases');
+      const { data } = result;
       
       // Create test cases from LLM response
       const newTestCases: TestCase[] = data.testCases.map((tc: any, index: number) => ({

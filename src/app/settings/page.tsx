@@ -11,6 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { V1Settings } from '@/components/ui/v1-settings';
+import { ReverseEngineeringSettings } from '@/components/ui/reverse-engineering-settings';
 import { 
   Settings, 
   Brain, 
@@ -21,7 +23,8 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-  Info
+  Info,
+  RotateCcw
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -51,8 +54,17 @@ export default function SettingsPage() {
 
   const handleProviderChange = (provider: string) => {
     setLLMProvider(provider);
-    // Reset API key when changing providers
-    setTempApiKey('');
+    // Try to preserve API key or load from environment
+    const { loadAPIKeyFromEnv } = useSettingsStore.getState();
+    const envKey = loadAPIKeyFromEnv(provider);
+    if (envKey) {
+      setTempApiKey(envKey);
+    } else if (llmSettings.apiKey) {
+      // Keep existing API key if no env key
+      setTempApiKey(llmSettings.apiKey);
+    } else {
+      setTempApiKey('');
+    }
   };
 
   const handleModelChange = (model: string) => {
@@ -306,6 +318,38 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* V1 Module LLM Settings */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <Settings className="h-5 w-5 text-purple-600" />
+            <CardTitle>V1 Module LLM Assignment</CardTitle>
+          </div>
+          <CardDescription>
+            Configure primary and backup LLMs for each V1 module. Each module can use different LLMs with automatic fallback.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <V1Settings />
+        </CardContent>
+      </Card>
+
+      {/* Reverse Engineering LLM Settings */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <RotateCcw className="h-5 w-5 text-orange-600" />
+            <CardTitle>Reverse Engineering LLM Settings</CardTitle>
+          </div>
+          <CardDescription>
+            Configure which LLM to use specifically for Design and Code reverse engineering operations.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ReverseEngineeringSettings />
         </CardContent>
       </Card>
 

@@ -11,8 +11,13 @@ const GenerateDesignCodeSchema = z.object({
   designStyle: z.enum(['modern', 'minimal', 'corporate', 'creative']).optional(),
   imageData: z.string().optional(), // Base64 encoded image data
   imageType: z.string().optional(), // Image MIME type
-  preferredProvider: z.enum(['google', 'openai']).optional().default('google'),
-  useRealLLM: z.boolean().default(true) // Toggle for using real LLM vs mock
+  preferredProvider: z.enum(['google', 'openai']).optional().default('openai'),
+  useRealLLM: z.boolean().default(true), // Toggle for using real LLM vs mock
+  // V1 Module LLM Settings
+  primaryProvider: z.string().optional(),
+  primaryModel: z.string().optional(),
+  backupProvider: z.string().optional(),
+  backupModel: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -24,7 +29,7 @@ export async function POST(request: NextRequest) {
     console.log('📥 Request body:', body);
 
     const validatedData = GenerateDesignCodeSchema.parse(body);
-    const { prompt, context, framework, includeResponsive, includeAccessibility, designStyle, imageData, imageType, preferredProvider, useRealLLM } = validatedData;
+    const { prompt, context, framework, includeResponsive, includeAccessibility, designStyle, imageData, imageType, preferredProvider, useRealLLM, primaryProvider, primaryModel, backupProvider, backupModel } = validatedData;
 
     console.log('✅ Request validation passed');
     console.log('🔍 Generating code for:', context);
@@ -52,7 +57,7 @@ export async function POST(request: NextRequest) {
     let generatedCode;
     if (useRealLLM) {
       // Call the LLM service to generate code with retry mechanism
-      generatedCode = await generateCodeWithRetryAndFallback(systemPrompt, userPrompt, framework, imageData, imageType, preferredProvider);
+      generatedCode = await generateCodeWithRetryAndFallback(systemPrompt, userPrompt, framework, imageData, imageType, preferredProvider, primaryProvider, primaryModel, backupProvider, backupModel);
     } else {
       // Use mock data for testing
       console.log('🎭 Using mock mode for testing');
@@ -159,16 +164,26 @@ Core Instructions & Workflow:
 
 CRITICAL RULES & CONSTRAINTS:
 - Single File Output: The entire output must be a single index.html file. No external CSS or JavaScript files are permitted.
-- Asset Handling (MANDATORY): This is the most critical part of your task.
-  * All images (photos, logos, backgrounds) MUST be replaced with publicly accessible, persistent URLs.
-  * NEVER use placeholders like path/to/image.jpg or invalid links like https://i.imgur.com/removed.png.
-  * Source equivalent, high-quality, royalty-free stock images from services like Pexels, Unsplash, or similar services to match the content and style of the original design.
-  * For icons, use a reliable CDN like Font Awesome. Include the CDN link in the <head> and use the appropriate <i> or <span> tags.
-- Text & Content: Transcribe all text content from the design exactly as it appears. If the text is placeholder "Lorem Ipsum," use it.
+- **VISUAL FIDELITY (HIGHEST PRIORITY)**: The final result must look virtually identical to the uploaded image. This is the most important requirement.
+- Asset Handling (MANDATORY): This is critical for visual accuracy.
+  * ALL images (photos, logos, backgrounds, icons) MUST use publicly accessible, persistent URLs.
+  * NEVER use placeholders like "path/to/image.jpg", "image.jpg", or broken links like "https://i.imgur.com/removed.png".
+  * Use high-quality, royalty-free stock images from reliable services:
+    - Unsplash.com (https://images.unsplash.com/)
+    - Pexels.com (https://images.pexels.com/)
+    - Pixabay.com (https://pixabay.com/get/)
+  * Choose images that EXACTLY match the content, style, and mood of the original design.
+  * For icons, use Font Awesome CDN: <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  * For profile images, use services like https://randomuser.me/api/portraits/ or https://thispersondoesnotexist.com/
+- **COLOR PRECISION**: Extract and replicate exact colors from the uploaded image. Use color picker tools mentally to identify precise hex codes.
+- **TYPOGRAPHY MATCHING**: Identify and replicate exact fonts, sizes, weights, and spacing from the uploaded image.
+- **LAYOUT PRECISION**: Replicate exact spacing, proportions, alignment, and component positioning.
+- **VISUAL POLISH**: Ensure the result is visually appealing with proper shadows, gradients, and modern styling.
+- Text & Content: Transcribe all text content from the design exactly as it appears, preserving capitalization and formatting.
 - Fonts: 
-  * Attempt to visually identify the font family.
-  * If the font is a standard one (e.g., Poppins, Roboto, Lato), import it from Google Fonts using the @import rule at the top of your <style> block.
-  * If the font is obscure or unidentifiable, select a close, modern alternative from Google Fonts that matches the style (serif, sans-serif, etc.).
+  * Identify exact font families from the image and import from Google Fonts when possible.
+  * For unidentifiable fonts, select visually similar alternatives that maintain the design aesthetic.
+  * Always include font imports in the <style> section: @import url('https://fonts.googleapis.com/css2?family=FontName:wght@weights&display=swap');
 
 Your response should ONLY contain the complete HTML code in a single code block. Do not include any conversational text or explanations.`;
 }
@@ -184,17 +199,38 @@ function buildUserPrompt(
   imageType?: string
 ): string {
   const imagePrompt = imageData ? 
-    `🖼️ VISUAL DESIGN ANALYSIS REQUIRED: I have provided a design reference image that contains the exact visual style, colors, fonts, and layout that must be replicated.
+    `🖼️ **CRITICAL VISUAL REPLICATION TASK**: I have provided a design reference image that you must recreate with PIXEL-PERFECT ACCURACY. This is your primary objective.
 
-MANDATORY ANALYSIS STEPS:
-1. **Extract Color Palette**: Identify all colors used (backgrounds, text, accents, borders) and provide exact hex codes
-2. **Analyze Typography**: Identify font families, weights, sizes, and spacing used throughout the design
-3. **Study Layout**: Examine spacing patterns, grid systems, component arrangements, and proportions  
-4. **Assess Visual Style**: Determine the design aesthetic, button styles, shadows, borders, and overall theme
-5. **Match Exactly**: The generated HTML must visually match the uploaded image as closely as possible
+**MANDATORY VISUAL ANALYSIS & REPLICATION**:
+1. **🎨 EXACT COLOR EXTRACTION**: 
+   - Identify EVERY color in the image (backgrounds, text, buttons, borders, shadows, gradients)
+   - Provide precise hex codes for each color element
+   - Replicate color relationships and visual hierarchy exactly
+   
+2. **🔤 TYPOGRAPHY PRECISION**:
+   - Identify exact font families, weights, and sizes from the image
+   - Match letter spacing, line height, and text alignment precisely
+   - Preserve exact text formatting and capitalization
+   
+3. **📐 LAYOUT & SPACING ACCURACY**:
+   - Measure and replicate exact spacing between all elements
+   - Match component proportions, alignment, and positioning precisely
+   - Recreate the exact visual rhythm and white space usage
+   
+4. **🎭 STYLE & AESTHETIC MATCHING**:
+   - Replicate exact button styles, shadows, borders, and visual effects
+   - Match the precise visual aesthetic and design language
+   - Ensure all visual elements look identical to the source image
+   
+5. **🖼️ IMAGE & ASSET HANDLING**:
+   - Replace ALL images with publicly accessible, high-quality URLs from Unsplash/Pexels
+   - Choose images that exactly match the content, style, and mood of the original
+   - Ensure visual continuity and aesthetic consistency
 
-Please analyze this image comprehensively and recreate it as a complete, single-file HTML document with pixel-perfect accuracy.` : 
-    `Please create a web component based on the following description: ${context}`;
+**SUCCESS CRITERIA**: The final HTML must be visually indistinguishable from the uploaded image when rendered in a browser.
+
+Please analyze this image with forensic precision and recreate it as a complete, single-file HTML document with absolute visual fidelity.` : 
+    `Please create a modern, visually appealing web component based on the following description: ${context}`;
 
   const additionalRequirements = [
     includeResponsive ? "Make it fully responsive with mobile-first design while maintaining visual consistency" : "",
@@ -214,17 +250,20 @@ ${prompt}
 ⚙️ **TECHNICAL REQUIREMENTS**: ${additionalRequirements}
 
 ${imageData ? `
-🔍 **VISUAL MATCHING PRIORITY**: 
-The uploaded design image is the PRIMARY reference. Extract and replicate:
-- Exact color palette and usage patterns
-- Typography hierarchy and font characteristics  
-- Spacing, proportions, and layout structure
-- Visual style elements (buttons, cards, shadows, etc.)
-- Overall aesthetic and design theme
+🔍 **ABSOLUTE VISUAL MATCHING PRIORITY**: 
+The uploaded design image is your ONLY reference - achieve 100% visual fidelity:
 
-The final result should look virtually identical to the provided design image.` : ''}
+**MANDATORY REPLICATION CHECKLIST**:
+✅ **Colors**: Extract and use exact hex codes from every visual element
+✅ **Typography**: Match exact fonts, sizes, weights, spacing, and alignment  
+✅ **Layout**: Replicate precise spacing, proportions, and positioning
+✅ **Images**: Use publicly accessible URLs that match original content/style exactly
+✅ **Styling**: Recreate exact shadows, borders, gradients, and visual effects
+✅ **Content**: Transcribe all text exactly as shown (including capitalization)
 
-Please provide a complete HTML file with embedded CSS that ${imageData ? 'perfectly recreates the design shown in the image' : 'meets the specified requirements'}.`;
+**QUALITY STANDARD**: When rendered, your HTML must be visually indistinguishable from the uploaded image. Any deviation from the original design is considered a failure.` : ''}
+
+Please provide a complete, single-file HTML document that ${imageData ? 'achieves pixel-perfect visual replication of the uploaded design image with publicly accessible images' : 'meets the specified requirements with modern, appealing styling'}.`;
 }
 
 async function generateCodeWithRetryAndFallback(
@@ -234,19 +273,48 @@ async function generateCodeWithRetryAndFallback(
   imageData?: string,
   imageType?: string,
   preferredProvider?: string,
+  primaryProvider?: string,
+  primaryModel?: string,
+  backupProvider?: string,
+  backupModel?: string,
   maxRetries: number = 3
 ): Promise<any> {
   console.log('🤖 Starting design code generation with retry mechanism...');
   
-  // Always try Google first (preserves user preference), then OpenAI as fallback
-  const providers = [
-    { name: 'Google', provider: 'google', model: 'gemini-2.5-pro' },
-    { name: 'OpenAI', provider: 'openai', model: 'gpt-4o' }
-  ];
-
-  // If user has a specific preference, try that first
-  if (preferredProvider === 'openai') {
-    providers.reverse();
+  // Use user's V1 module settings if provided, otherwise use defaults
+  const providers = [];
+  
+  if (primaryProvider && primaryModel) {
+    providers.push({ 
+      name: primaryProvider === 'google' ? 'Google' : 'OpenAI', 
+      provider: primaryProvider, 
+      model: primaryModel 
+    });
+    console.log(`[DESIGN-CODE API] 🎯 Using user's primary provider: ${primaryProvider} - ${primaryModel}`);
+  }
+  
+  if (backupProvider && backupModel) {
+    providers.push({ 
+      name: backupProvider === 'google' ? 'Google' : 'OpenAI', 
+      provider: backupProvider, 
+      model: backupModel 
+    });
+    console.log(`[DESIGN-CODE API] 🔄 Using user's backup provider: ${backupProvider} - ${backupModel}`);
+  }
+  
+  // If no user settings provided, use defaults with preference handling
+  if (providers.length === 0) {
+    providers.push(
+      { name: 'OpenAI', provider: 'openai', model: 'gpt-4o' },
+      { name: 'Google', provider: 'google', model: 'gemini-2.5-pro' }
+    );
+    
+    // If user has a specific preference for Google, try that first
+    if (preferredProvider === 'google') {
+      providers.reverse();
+    }
+    
+    console.log('[DESIGN-CODE API] ⚠️ No user LLM settings provided, using default providers');
   }
 
   for (const providerConfig of providers) {
@@ -257,7 +325,7 @@ async function generateCodeWithRetryAndFallback(
         console.log(`📡 ${providerConfig.name} attempt ${attempt}/${maxRetries}`);
         
         // Call the MCP Bridge Server for actual LLM processing
-        const response = await fetch('http://localhost:8000/generate-design-code', {
+        const response = await fetch(`${process.env.MCP_BRIDGE_URL || 'http://localhost:8000'}/generate-design-code`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -285,7 +353,7 @@ async function generateCodeWithRetryAndFallback(
             ...result.data,
             provider: providerConfig.name,
             attempt: attempt,
-            usedFallback: providerConfig.name !== 'Google'
+            usedFallback: providerConfig.name !== 'OpenAI'
           };
         } else {
           throw new Error(result.error || `${providerConfig.name} API returned error`);

@@ -17,23 +17,47 @@ Aura Playground is a **complete isolated environment** for developing and testin
 - 🎨 **Prototyping** new UI/UX improvements
 - 🔄 **Merging** proven changes back to production
 
+## 🏢 Enterprise Structure
+
+This repository follows an enterprise-grade folder structure designed for scalability and maintainability:
+
+```
+Aura-Playground/
+├── 📁 src/                    # Application source code
+├── 📁 tools/                  # Development & database tools
+├── 📁 config/                 # Configuration management
+├── 📁 infrastructure/         # Infrastructure as Code
+├── 📁 docs/                   # Documentation
+├── 📁 tests/                  # Testing framework
+├── 📁 temp/                   # Temporary & experimental files
+├── 🚀 start-aura-with-mcp.bat # Main startup script
+├── 🔄 fresh-start.bat         # Clean restart script
+└── 📖 README.md               # This file
+```
+
+For detailed structure documentation, see [ENTERPRISE_STRUCTURE.md](./ENTERPRISE_STRUCTURE.md).
+
 ## ⚡ Quick Start
 
 ### 1. Set Up Your Playground Database
 
 ```powershell
 # Automated setup (recommended)
-.\setup-playground.ps1
+tools\scripts\development\setup-playground.ps1
 
-# Or manual setup
-mysql -u root -e "source setup-aura-playground-database.sql"
+# Or manual database setup
+tools\database\setup\setup.ps1
 ```
 
 ### 2. Configure Environment
 
 ```bash
-# Copy playground configuration to .env
-cp aura-database.env .env
+# Copy environment template and configure
+cp config\environment\env.template .env
+
+# Edit .env file and set your values:
+# - AURA_DB_PASSWORD=your_secure_password
+# - OPENAI_API_KEY=your_openai_key (or GOOGLE_API_KEY)
 ```
 
 ### 3. Install Dependencies & Start
@@ -47,7 +71,7 @@ npm run dev
 
 ```powershell
 # Run comprehensive tests
-.\test-playground.ps1
+tools\scripts\development\test-playground.ps1
 
 # Or check manually
 curl http://localhost:3000/api/database/health
